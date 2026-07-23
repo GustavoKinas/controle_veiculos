@@ -1,0 +1,59 @@
+{% comment %}
+Tabela de colaboradores — alvo dos swaps HTMX (busca ao vivo + paginação).
+{% endcomment %}
+<div id="tabela-colab" class="mt-4">
+  {% if funcionarios_cadastrados %}
+    <div class="overflow-x-auto">
+      <table class="table table-zebra">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Centro de Custo</th>
+            <th>Unidade Fabril</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for funcionario in funcionarios_cadastrados %}
+            <tr>
+              <td class="font-medium">{{ funcionario.nome }}</td>
+              <td>{% if funcionario.centro_custo %}<span class="font-mono text-sm">{{ funcionario.centro_custo.codigo }}</span>{% else %}<span class="opacity-40">—</span>{% endif %}</td>
+              <td>{% if funcionario.unidade_fabril %}{{ funcionario.unidade_fabril.nome }}{% else %}<span class="opacity-40">—</span>{% endif %}</td>
+              <td>
+                {% if funcionario.ativo %}
+                  <span class="badge badge-success badge-sm text-success-content">Ativo</span>
+                {% else %}
+                  <span class="badge badge-ghost badge-sm">Inativo</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if is_paginated %}
+      <div class="mt-6 flex justify-center">
+        <div class="join">
+          {% if page_obj.has_previous %}
+            <a class="btn join-item"
+               href="?q={{ busca }}&ordenar={{ ordenar }}&page={{ page_obj.previous_page_number }}"
+               hx-get="?q={{ busca }}&ordenar={{ ordenar }}&page={{ page_obj.previous_page_number }}"
+               hx-target="#tabela-colab" hx-select="#tabela-colab" hx-swap="outerHTML" hx-push-url="true">«</a>
+          {% endif %}
+          <span class="btn join-item no-animation">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+          {% if page_obj.has_next %}
+            <a class="btn join-item"
+               href="?q={{ busca }}&ordenar={{ ordenar }}&page={{ page_obj.next_page_number }}"
+               hx-get="?q={{ busca }}&ordenar={{ ordenar }}&page={{ page_obj.next_page_number }}"
+               hx-target="#tabela-colab" hx-select="#tabela-colab" hx-swap="outerHTML" hx-push-url="true">»</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="py-14 text-center text-base-content/50">
+      {% if busca %}Nenhum colaborador encontrado para "{{ busca }}".{% else %}Nenhum colaborador cadastrado ainda.{% endif %}
+    </div>
+  {% endif %}
+</div>

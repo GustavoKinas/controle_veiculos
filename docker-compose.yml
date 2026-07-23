@@ -1,0 +1,41 @@
+services:
+  web:
+    build: .
+    container_name: controle_veiculos_app
+    command: gunicorn controle_veiculos.wsgi:application --bind 0.0.0.0:8000
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+    restart: always
+
+  db:
+    image: postgres:16
+    container_name: controle_veiculos_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+    restart: always
+
+  nginx:
+    image: nginx:stable
+    container_name: controle_veiculos_nginx
+    ports:
+      - "5008:80"
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:

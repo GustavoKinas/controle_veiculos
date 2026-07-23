@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% block title %}Fechamento e rateio — Controle de Veículos{% endblock %}
+
+{% block page_badge %}
+  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
+{% endblock %}
+{% block page_title %}Fechamento e rateio de custos{% endblock %}
+{% block page_subtitle %}
+  Selecione um período, confira o rateio por centro de custo e confirme o
+  fechamento. Viagens já fechadas nunca entram novamente.
+{% endblock %}
+
+{% block content %}
+
+{% if fechamento_concluido %}
+  <div role="alert" class="alert alert-success mb-6 shadow-lg">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <span>
+      Fechamento de {{ fechamento_concluido.data_inicio|date:"d/m/Y" }} a
+      {{ fechamento_concluido.data_fim|date:"d/m/Y" }} concluído —
+      <strong>{{ fechamento_concluido.total_km }} km</strong> processados.
+    </span>
+    <a class="btn btn-sm" href="{% url 'fechamento_exportar' fechamento_concluido.pk %}">📊 Baixar Excel</a>
+  </div>
+{% endif %}
+
+<!-- Filtro de período -->
+<div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
+  <div class="card-body">
+    <h2 class="card-title">Período</h2>
+    <p class="text-sm text-base-content/60">
+      Considera apenas viagens em aberto dentro do intervalo escolhido.
+    </p>
+
+    <form
+      method="get"
+      hx-get="{% url 'fechamento' %}"
+      hx-target="#rateio-panel"
+      hx-select="#rateio-panel"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+      hx-indicator="#rateio-loading"
+      class="mt-2 grid gap-4 sm:grid-cols-3 sm:items-end"
+    >
+      <label class="form-control w-full">
+        <span class="label-text mb-1 font-semibold">{{ form.data_inicio.label }}</span>
+        {{ form.data_inicio }}
+      </label>
+      <label class="form-control w-full">
+        <span class="label-text mb-1 font-semibold">{{ form.data_fim.label }}</span>
+        {{ form.data_fim }}
+      </label>
+      <button type="submit" class="btn btn-primary">
+        <span class="loading loading-spinner loading-sm htmx-indicator" id="rateio-loading"></span>
+        🔎 Calcular rateio
+      </button>
+    </form>
+
+    {% if form.non_field_errors %}
+      <div class="mt-3 text-sm text-error">{{ form.non_field_errors|striptags }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Painel do rateio (alvo do HTMX) -->
+{% include 'viagens/partials/_rateio.html' %}
+
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+
+{% block title %}Colaboradores cadastrados — Controle de Veículos{% endblock %}
+
+{% block page_badge %}
+  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Cadastro</span>
+{% endblock %}
+{% block page_title %}Colaboradores cadastrados{% endblock %}
+{% block page_subtitle %}Lista completa de colaboradores e seus centros de custo.{% endblock %}
+
+{% block content %}
+<div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
+  <div class="card-body">
+
+    <!-- Busca + ordenação (HTMX) -->
+    <form
+      hx-get="{% url 'funcionarios_cadastrados' %}"
+      hx-target="#tabela-colab"
+      hx-select="#tabela-colab"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+      hx-trigger="input changed delay:300ms, change"
+      hx-indicator="#busca-loading"
+      class="flex flex-col gap-3 sm:flex-row sm:items-center"
+    >
+      <label class="input input-bordered flex flex-1 items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" />
+        </svg>
+        <input type="text" name="q" value="{{ busca }}" placeholder="Buscar por nome..." class="grow" autocomplete="off" />
+        <span class="loading loading-spinner loading-xs htmx-indicator" id="busca-loading"></span>
+      </label>
+
+      <select name="ordenar" class="select select-bordered">
+        <option value="-id" {% if ordenar == "-id" %}selected{% endif %}>Mais recentes</option>
+        <option value="nome" {% if ordenar == "nome" %}selected{% endif %}>Nome (A–Z)</option>
+        <option value="-nome" {% if ordenar == "-nome" %}selected{% endif %}>Nome (Z–A)</option>
+      </select>
+    </form>
+
+    {% include 'partials/_tabela_colaboradores.html' %}
+
+  </div>
+</div>
+{% endblock %}

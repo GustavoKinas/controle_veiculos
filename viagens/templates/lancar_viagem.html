@@ -1,0 +1,248 @@
+{% extends 'base.html' %}
+
+{% block title %}Lançar viagem — Controle de Veículos{% endblock %}
+
+{% block page_badge %}
+  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
+{% endblock %}
+{% block page_title %}Lançamento de viagens{% endblock %}
+{% block page_subtitle %}
+  Registre as viagens dos colaboradores. O centro de custo é vinculado
+  automaticamente pelo colaborador selecionado.
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* Dropdown do autocomplete de colaborador. */
+  .autocomplete-lista {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .autocomplete-lista-aberta { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="grid gap-6 lg:grid-cols-5">
+
+  <!-- Formulário -->
+  <div class="lg:col-span-2">
+    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
+      <div class="card-body">
+        <h2 class="card-title">Nova viagem</h2>
+        <p class="text-sm text-base-content/60">Selecione o colaborador, a data e a quilometragem.</p>
+
+        <form method="post" novalidate class="mt-2 space-y-4">
+          {% csrf_token %}
+
+          {% for field in form %}
+            <div class="form-control w-full">
+              <label class="label" for="{% if field.name == 'funcionario' %}funcionario-busca{% else %}{{ field.id_for_label }}{% endif %}">
+                <span class="label-text font-semibold">{{ field.label }}</span>
+              </label>
+
+              {% if field.name == "funcionario" %}
+                <div class="autocomplete-wrap relative">
+                  <div class="join w-full">
+                    <input
+                      type="text"
+                      id="funcionario-busca"
+                      class="input input-bordered join-item w-full focus:input-primary"
+                      placeholder="Digite o nome do colaborador..."
+                      autocomplete="off"
+                    />
+                    <button type="button" id="funcionario-seta" class="btn btn-outline join-item" aria-label="Abrir lista de colaboradores">▾</button>
+                  </div>
+                  <div id="funcionario-sugestoes" class="autocomplete-lista rounded-box border border-base-300 bg-base-100 shadow-xl"></div>
+                  <div class="hidden">{{ field }}</div>
+                </div>
+              {% else %}
+                {{ field }}
+              {% endif %}
+
+              {% if field.errors %}
+                <span class="mt-1 text-sm text-error">{{ field.errors|striptags }}</span>
+              {% endif %}
+            </div>
+          {% endfor %}
+
+          <button type="submit" class="btn btn-primary btn-block">📝 Lançar viagem</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Últimas viagens -->
+  <div class="lg:col-span-3">
+    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
+      <div class="card-body">
+        <div class="flex items-center justify-between">
+          <h2 class="card-title">Últimas viagens</h2>
+          <span class="badge badge-ghost">15 mais recentes</span>
+        </div>
+
+        {% if ultimas_viagens %}
+          <div class="mt-2 overflow-x-auto">
+            <table class="table table-zebra table-sm">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Colaborador</th>
+                  <th>C. Custo</th>
+                  <th class="text-right">KM</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for viagem in ultimas_viagens %}
+                  <tr>
+                    <td class="whitespace-nowrap">{{ viagem.data|date:"d/m/Y" }}</td>
+                    <td class="font-medium">{{ viagem.funcionario }}</td>
+                    <td>{{ viagem.centro_custo.codigo }}</td>
+                    <td class="text-right font-semibold tabular-nums">{{ viagem.km_percorrida }}</td>
+                    <td>
+                      {% if viagem.fechada %}
+                        <span class="badge badge-ghost badge-sm">Fechada</span>
+                      {% else %}
+                        <span class="badge badge-success badge-sm text-success-content">Em aberto</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="py-10 text-center text-base-content/50">Nenhuma viagem lançada ainda.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const busca = document.getElementById("funcionario-busca");
+    const select = document.getElementById("{{ form.funcionario.id_for_label }}");
+    const lista = document.getElementById("funcionario-sugestoes");
+    const seta = document.getElementById("funcionario-seta");
+
+    if (!busca || !select || !lista || !seta) return;
+
+    const ITEM_CLASSES = "autocomplete-item cursor-pointer px-4 py-2 text-sm hover:bg-primary/15";
+    const LIMITE_SUGESTOES = 200;
+
+    const normalizar = function (texto) {
+      return texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    };
+
+    const colaboradores = Array.from(select.options)
+      .filter(function (o) { return o.value; })
+      .map(function (o) { return { id: o.value, nome: o.textContent }; });
+
+    let indiceAtivo = -1;
+
+    if (select.value) {
+      const sel = colaboradores.find(function (c) { return c.id === select.value; });
+      if (sel) busca.value = sel.nome;
+    }
+
+    const fechar = function () {
+      lista.innerHTML = "";
+      lista.classList.remove("autocomplete-lista-aberta");
+      indiceAtivo = -1;
+    };
+
+    const destacar = function () {
+      Array.from(lista.children).forEach(function (item, i) {
+        item.classList.toggle("bg-primary/20", i === indiceAtivo);
+      });
+    };
+
+    const selecionar = function (c) {
+      select.value = c.id;
+      busca.value = c.nome;
+      fechar();
+    };
+
+    const render = function (termo) {
+      lista.innerHTML = "";
+      const achados = colaboradores
+        .filter(function (c) { return normalizar(c.nome).includes(termo); })
+        .slice(0, LIMITE_SUGESTOES);
+
+      if (achados.length === 0) {
+        const vazio = document.createElement("div");
+        vazio.className = "px-4 py-2 text-sm text-base-content/50";
+        vazio.textContent = "Nenhum colaborador encontrado.";
+        lista.appendChild(vazio);
+      } else {
+        achados.forEach(function (c) {
+          const item = document.createElement("div");
+          item.className = ITEM_CLASSES;
+          item.textContent = c.nome;
+          item.addEventListener("mousedown", function (e) { e.preventDefault(); selecionar(c); });
+          lista.appendChild(item);
+        });
+      }
+      indiceAtivo = -1;
+      lista.classList.add("autocomplete-lista-aberta");
+    };
+
+    busca.addEventListener("input", function () {
+      select.value = "";
+      const termo = normalizar(busca.value.trim());
+      if (termo.length === 0) { fechar(); return; }
+      render(termo);
+    });
+
+    busca.addEventListener("focus", function () {
+      const termo = normalizar(busca.value.trim());
+      if (termo.length > 0 && !select.value) render(termo);
+    });
+
+    seta.addEventListener("mousedown", function (e) {
+      e.preventDefault();
+      if (lista.classList.contains("autocomplete-lista-aberta")) { fechar(); return; }
+      render(normalizar(busca.value.trim()));
+      busca.focus();
+    });
+
+    busca.addEventListener("keydown", function (e) {
+      const itens = Array.from(lista.children).filter(function (el) {
+        return el.classList.contains("autocomplete-item");
+      });
+      if (itens.length === 0) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        indiceAtivo = (indiceAtivo + 1) % itens.length;
+        destacar();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        indiceAtivo = (indiceAtivo - 1 + itens.length) % itens.length;
+        destacar();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const alvo = indiceAtivo >= 0 ? itens[indiceAtivo] : itens[0];
+        const c = colaboradores.find(function (x) { return x.nome === alvo.textContent; });
+        if (c) selecionar(c);
+      } else if (e.key === "Escape") {
+        fechar();
+      }
+    });
+
+    document.addEventListener("click", function (e) {
+      if (e.target !== busca && e.target !== seta && !lista.contains(e.target)) fechar();
+    });
+  });
+</script>
+{% endblock %}
