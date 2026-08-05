@@ -91,9 +91,8 @@ por um campo de busca (JS puro, sem dependências novas): digitar esconde as
 `<option>` cujo texto não contém o termo (comparação acento-insensível via
 `normalize("NFD")`, mesmo princípio de `normalizar_texto` usado em
 `colaboradores/forms.py`). Escolhido por não exigir bibliotecas externas
-(select2/jQuery não estão de fato carregados no projeto, apesar de existirem
-classes CSS residuais do clone original) e por ser suficiente para a escala
-esperada (algumas centenas de colaboradores).
+(select2/jQuery não estão carregados no projeto) e por ser suficiente para a
+escala esperada (algumas centenas de colaboradores).
 
 ### 3.7 Exportação de fechamento em Excel (`viagens/exports.py`)
 `exportar_fechamento_excel(fechamento)` gera um `.xlsx` com **openpyxl** (nova
@@ -112,6 +111,32 @@ centenas de viagens). Note que `.xlsx` é um contêiner ZIP, então não há str
 byte-a-byte real possível; o ganho de performance que importa aqui é evitar
 N+1 queries, não streaming da resposta.
 
+### 3.8 Quilometragem validada no modelo (`Viagem.clean`)
+As regras de hodômetro vivem em `services.validar_quilometragem` e são
+disparadas por `Viagem.clean()` — **não** pelo `clean()` do formulário. Assim
+valem para a tela de lançamento, para o admin e para qualquer `full_clean()`
+em script/import; o `_post_clean()` do ModelForm já leva os erros para os
+campos certos (a função levanta `ValidationError` com dicionário
+`{"km_inicial"/"km_final": ...}`).
+
+Regras, sempre **por veículo**:
+1. `km_final > km_inicial`;
+2. **piso** — `km_inicial` não pode ser menor que o maior `km_final` já
+   registrado para o veículo **até aquela data** (o hodômetro não anda para
+   trás). Se o veículo ainda não tem nenhuma viagem, o piso é o `km_atual` do
+   cadastro; se só tem viagens *posteriores* à data, não há piso (quem limita
+   é a regra 3);
+3. **teto** — `km_final` não pode invadir a faixa de um lançamento posterior
+   já existente (`Min(km_inicial)` das viagens com `data` maior).
+
+O hodômetro (`Veiculo.km_atual`) é recalculado por
+`services.atualizar_km_veiculo` no `save()` da viagem e num `post_delete`.
+É um recompute (`Max(km_final)`) e não um "só sobe": editar uma viagem para
+menos ou excluí-la **abaixa** o `km_atual` — sem isso o valor ficaria inflado
+e barraria lançamentos legítimos. Com o veículo sem nenhuma viagem, o
+`km_atual` do cadastro é preservado. Atenção: exclusões feitas direto no banco
+(SQL) não passam pelo signal e exigem recálculo manual.
+
 ---
 
 ## 4. Estrutura de arquivos (o que foi criado/alterado)
@@ -125,9 +150,9 @@ controle_veiculos/                 # raiz (contém manage.py)
 ├── controle_veiculos/            # pacote de configuração (renomeado de controle_viagens)
 │   ├── settings.py               # (reescrito) Postgres, AUTH_USER_MODEL, apps, estáticos
 │   ├── urls.py                   # (reescrito) login/logout + include dos apps
-│   ├── templates/base.html       # (menu reescrito + mensagens)
+│   ├── templates/base.html       # layout (Tailwind CDN + DaisyUI + HTMX), tema "flexivel"
 │   ├── templates/login.html      # (ajustado p/ LoginView nativa)
-│   └── static/css/base.css       # (+ estilos de tabela e barra de percentual)
+│   └── static/                   # logo.png e images/background.jpg
 ├── colaboradores/                 # app de colaboradores (= usuários)
 │   ├── models.py                 # Funcionario(AbstractUser), CentroCusto, UnidadeFabril
 │   ├── forms.py                  # cadastro (gera username), inativar
@@ -140,9 +165,10 @@ controle_veiculos/                 # raiz (contém manage.py)
 │       ├── cadastro_funcionarios.py  # (ajustado) importa CSV
 │       └── criar_portaria.py         # (NOVO) cria o operador padrão
 └── viagens/                       # (NOVO APP) controle de viagens
-    ├── models.py                 # Viagem, Fechamento, FechamentoRateio
+    ├── models.py                 # Viagem, Veiculo, Fechamento, FechamentoRateio
     ├── forms.py                  # LancamentoViagemForm, FechamentoFiltroForm
-    ├── services.py               # calcular_rateio, confirmar_fechamento (regras de negócio)
+    ├── services.py               # validar_quilometragem, atualizar_km_veiculo,
+    │                             #   calcular_rateio, confirmar_fechamento
     ├── exports.py                # (NOVO) exportar_fechamento_excel (openpyxl)
     ├── views.py                  # LancarViagem, Fechamento, FechamentoExportar, HistoricoFechamentos
     ├── urls.py
@@ -159,7 +185,9 @@ controle_veiculos/                 # raiz (contém manage.py)
 - **CentroCusto**: `codigo` (10 dígitos, único), `descricao`.
 - **Funcionario** (`AbstractUser`): + `nome`, `unidade_fabril?`, `centro_custo?`,
   `ativo`.
-- **Viagem**: `funcionario`, `data`, `km_inicial`, `km_final`,
+- **Veiculo**: `placa` (única), `modelo`, `marca`, `km_atual` (hodômetro,
+  recalculado a partir das viagens), `ativo`.
+- **Viagem**: `funcionario`, `veiculo?`, `data`, `km_inicial`, `km_final`,
   `km_percorrida` (calculado no save), `centro_custo` (congelado),
   `fechamento?`, `lancada_por?`, `criada_em`. Propriedade `fechada`.
 - **Fechamento**: `data_inicio`, `data_fim`, `total_km`, `criado_por?`,

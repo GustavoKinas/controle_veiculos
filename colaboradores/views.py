@@ -1,11 +1,24 @@
+from django.contrib.auth import logout
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.views import View
 from django.views.generic import ListView
 
 from .forms import CadastroFuncionario, InativarFuncionarioForm
 from .models import Funcionario
+
+
+def logout_usuario(request: HttpRequest) -> HttpResponse:
+    """
+    Encerra a sessão e redireciona para o login.
+
+    Feito como view própria (em vez do LogoutView nativo) porque, a partir do
+    Django 5, o LogoutView aceita apenas POST — os links "Sair" do menu são
+    GET (`<a href>`), o que resultaria em HTTP 405. Aqui aceitamos GET e POST.
+    """
+    logout(request)
+    return redirect("login")
 
 
 class FuncionariosView(LoginRequiredMixin, View):

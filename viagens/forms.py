@@ -2,19 +2,23 @@ from django import forms
 
 from colaboradores.models import Funcionario
 
-from .models import Viagem
+from .models import Viagem, Veiculo
 
 
 class LancamentoViagemForm(forms.ModelForm):
     class Meta:
         model = Viagem
-        fields = ["funcionario", "data", "km_inicial", "km_final"]
+        fields = ["funcionario", "veiculo", "data", "km_inicial", "km_final"]
         widgets = {
             "funcionario": forms.Select(attrs={"class": "select select-bordered w-full"}),
             "data": forms.DateInput(
                 attrs={"class": "input input-bordered w-full", "type": "date"},
                 format="%Y-%m-%d",
             ),
+            "veiculo": forms.Select(
+                attrs={"class": "select select-bordered w-full"}
+                ),
+
             "km_inicial": forms.NumberInput(
                 attrs={
                     "class": "input input-bordered w-full",
@@ -29,10 +33,12 @@ class LancamentoViagemForm(forms.ModelForm):
                     "placeholder": "Ex.: 120512",
                 }
             ),
+            
         }
         labels = {
             "funcionario": "Colaborador",
             "data": "Data da viagem",
+            "veiculo" :"Veiculo Utilizado",
             "km_inicial": "Quilometragem inicial",
             "km_final": "Quilometragem final",
         }
@@ -48,17 +54,13 @@ class LancamentoViagemForm(forms.ModelForm):
         )
         self.fields["funcionario"].empty_label = "Selecione um colaborador"
 
-    def clean(self):
-        cleaned = super().clean()
-        km_inicial = cleaned.get("km_inicial")
-        km_final = cleaned.get("km_final")
+        self.fields["veiculo"].queryset = Veiculo.objects.filter(ativo=True).order_by("placa")
+        self.fields["veiculo"].required = True
+        self.fields["veiculo"].empty_label = "Selecione um veículo"
 
-        if km_inicial is not None and km_final is not None and km_final < km_inicial:
-            self.add_error(
-                "km_final",
-                "A quilometragem final não pode ser menor que a inicial.",
-            )
-        return cleaned
+    # A validação de quilometragem vive em Viagem.clean() e é executada pelo
+    # _post_clean() do ModelForm — assim vale também para o admin e para
+    # qualquer full_clean(). Os erros já vêm endereçados a km_inicial/km_final.
 
 
 class FechamentoFiltroForm(forms.Form):

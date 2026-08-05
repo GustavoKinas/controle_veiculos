@@ -10,7 +10,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from datetime import date
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Sum, Max, Min
+from django.core.exceptions import ValidationError
 
 from .models import Fechamento, FechamentoRateio, Viagem
 
@@ -25,6 +26,85 @@ def _percentual(parte: int, total: int) -> Decimal:
         DUAS_CASAS, rounding=ROUND_HALF_UP
     )
 
+def validar_quilometragem(veiculo, data, km_inicial, km_final, viagem_id=None):
+    """
+    Valida a quilometragem de uma viagem contra o histórico do veículo.
+
+    Regras:
+      1. `km_final` deve ser maior que `km_inicial`;
+      2. `km_inicial` não pode ser menor que a maior KM já registrada para o
+         veículo até a data (o hodômetro nunca anda para trás);
+      3. `km_final` não pode invadir a faixa de um lançamento posterior.
+
+    Os erros são levantados já endereçados ao campo correspondente, para que
+    tanto o ModelForm quanto o admin os exibam no lugar certo.
+    """
+    if km_inicial is None or km_final is None:
+        return                                              # campo faltando: erro de field já foi acusado
+
+    if km_final <= km_inicial:                              # regra 1
+        raise ValidationError(
+            {"km_final": "A quilometragem final deve ser maior que a inicial."}
+        )
+
+    if veiculo is None or data is None:
+        return
+
+    viagens_do_veiculo = Viagem.objects.filter(veiculo=veiculo)
+    if viagem_id is not None:                               # edição: não comparar consigo mesma
+        viagens_do_veiculo = viagens_do_veiculo.exclude(pk=viagem_id)
+
+    # Piso (regra 2): maior KM já registrada para o veículo até esta data.
+    piso_quilometragem = viagens_do_veiculo.filter(data__lte=data).aggregate(
+        km=Max("km_final")
+    )["km"]
+    if piso_quilometragem is None and not viagens_do_veiculo.exists():
+        # Veículo ainda sem viagens: o piso é o hodômetro cadastrado. Se já
+        # existem viagens (todas posteriores a esta data), `km_atual` é o maior
+        # KM global e não serve de piso — quem limita aqui é o teto (regra 3).
+        piso_quilometragem = veiculo.km_atual
+    if piso_quilometragem is not None and km_inicial < piso_quilometragem:
+        raise ValidationError(
+            {
+                "km_inicial": (
+                    f"KM inicial ({km_inicial}) não pode ser menor que "
+                    f"{piso_quilometragem} (maior KM já registrada para "
+                    f"{veiculo} até esta data)."
+                )
+            }
+        )
+
+    # Teto (regra 3): não invadir a faixa de um lançamento posterior existente.
+    teto_quilometragem = viagens_do_veiculo.filter(data__gt=data).aggregate(
+        km=Min("km_inicial")
+    )["km"]
+    if teto_quilometragem is not None and km_final > teto_quilometragem:
+        raise ValidationError(
+            {
+                "km_final": (
+                    f"KM final ({km_final}) invade um lançamento posterior "
+                    f"(que inicia em {teto_quilometragem})."
+                )
+            }
+        )
+
+def atualizar_km_veiculo(veiculo):
+    """
+    Recalcula o hodômetro do veículo a partir das viagens existentes.
+
+    Ao contrário de um UPDATE condicional (que só sobe o km), o recompute
+    também ABAIXA o valor — necessário quando uma viagem é editada para menos
+    ou excluída. Chamado no `save()` e no `post_delete` de `Viagem`.
+    """
+    if veiculo is None:
+        return
+    maior_km = veiculo.viagens.aggregate(km=Max("km_final"))["km"]
+    if maior_km is None:
+        # Sem viagens: preserva o hodômetro informado no cadastro do veículo.
+        return
+    if veiculo.km_atual != maior_km:
+        veiculo.km_atual = maior_km
+        veiculo.save(update_fields=["km_atual"])
 
 def viagens_em_aberto(data_inicio: date, data_fim: date):
     """Viagens no período que ainda NÃO entraram em nenhum fechamento."""
@@ -92,11 +172,11 @@ def confirmar_fechamento(data_inicio: date, data_fim: date, usuario=None):
     if not viagens:
         return None
 
-    total_km = sum(v.km_percorrida for v in viagens)
+    total_km = sum(viagem.km_percorrida for viagem in viagens)
 
     km_por_cc: dict[int, int] = defaultdict(int)
-    for v in viagens:
-        km_por_cc[v.centro_custo_id] += v.km_percorrida
+    for viagem in viagens:
+        km_por_cc[viagem.centro_custo_id] += viagem.km_percorrida
 
     fechamento = Fechamento.objects.create(
         data_inicio=data_inicio,
@@ -120,3 +200,5 @@ def confirmar_fechamento(data_inicio: date, data_fim: date, usuario=None):
     Viagem.objects.filter(id__in=[v.id for v in viagens]).update(fechamento=fechamento)
 
     return fechamento
+
+

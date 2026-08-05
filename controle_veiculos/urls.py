@@ -7,6 +7,8 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path
 from django.views.generic import RedirectView
 
+from colaboradores.views import logout_usuario
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path(
@@ -17,7 +19,7 @@ urlpatterns = [
         ),
         name="login",
     ),
-    path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("logout/", logout_usuario, name="logout"),
     # Raiz redireciona para a tela principal (lançamento de viagens).
     path("", RedirectView.as_view(pattern_name="lancar_viagem", permanent=False)),
     path("viagens/", include("viagens.urls")),

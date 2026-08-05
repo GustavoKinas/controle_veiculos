@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Fechamento, FechamentoRateio, Viagem
+from .models import Fechamento, FechamentoRateio, Viagem, Veiculo
 
 
 class FechamentoRateioInline(admin.TabularInline):
@@ -20,6 +20,7 @@ class ViagemAdmin(admin.ModelAdmin):
         "km_final",
         "km_percorrida",
         "fechamento",
+        "veiculo"
     )
     list_filter = ("fechamento", "centro_custo", "data")
     search_fields = ("funcionario__nome", "funcionario__username")
@@ -33,3 +34,10 @@ class FechamentoAdmin(admin.ModelAdmin):
     inlines = [FechamentoRateioInline]
     readonly_fields = ("total_km", "criado_por", "criado_em")
     date_hierarchy = "criado_em"
+
+@admin.register(Veiculo)
+class VeiculoAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "placa", "modelo", "marca", "km_atual", "ativo")
+    list_filter = ("ativo", "marca")
+    search_fields = ("placa", "modelo", "marca")
+

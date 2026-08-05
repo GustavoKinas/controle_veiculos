@@ -1,4 +1,45 @@
-venv
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ---------- Ambiente virtual ----------
+venv/
+.venv/
+env/
+ENV/
+
+# ---------- Segredos / configuração local ----------
+# NUNCA versionar: contém SECRET_KEY, DATABASE_URL e senhas.
 .env
+.env.*
+!.env.example
+
+# ---------- Django ----------
 db.sqlite3
-.csv
+db.sqlite3-journal
+*.log
+# gerado por `collectstatic` — é build, não código-fonte
+staticfiles/
+media/
+
+# ---------- Dados de importação ----------
+# cc.csv / funcionarios_total.csv trazem dados reais de colaboradores
+# e centros de custo: ficam só na máquina de quem importa.
+*.csv
+
+# ---------- Testes e ferramentas ----------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- Editores / Sistema operacional ----------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

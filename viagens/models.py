@@ -1,6 +1,7 @@
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 from colaboradores.models import CentroCusto
 
@@ -72,7 +73,25 @@ class FechamentoRateio(models.Model):
     def __str__(self):
         return f"{self.centro_custo} — {self.km_percorrida} km ({self.percentual}%)"
 
+class Veiculo(models.Model):
 
+    id = models.AutoField(primary_key=True)
+    placa = models.CharField(max_length=7,unique=True)
+    modelo = models.CharField(max_length=125, blank=True, default="")
+    marca = models.CharField(max_length=40, blank=True, default="")
+    km_atual = models.PositiveBigIntegerField(default=0)
+    ativo = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Veículo"
+        verbose_name_plural = "Veículos"
+        ordering = ["modelo"]
+        db_table = "veiculos"
+        
+
+    def __str__(self):
+        return f"{self.marca} - {self.modelo} - {self.placa}"
+    
 class Viagem(models.Model):
     """
     Registro de uma viagem realizada por um funcionário. O Centro de Custo é
@@ -86,6 +105,15 @@ class Viagem(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="viagens",
+    )
+
+    veiculo = models.ForeignKey(
+        Veiculo,
+        on_delete=models.PROTECT,
+        related_name="viagens",
+        null=True,
+        blank=True
+
     )
     data = models.DateField()
 
@@ -134,11 +162,18 @@ class Viagem(models.Model):
         return self.fechamento_id is not None
 
     def clean(self):
-        if self.km_inicial is not None and self.km_final is not None:
-            if self.km_final < self.km_inicial:
-                raise ValidationError(
-                    {"km_final": "A quilometragem final não pode ser menor que a inicial."}
-                )
+        # Import tardio: services importa models (evita import circular).
+        from .services import validar_quilometragem
+
+        # Vale para qualquer caminho de validação (ModelForm, admin,
+        # full_clean() em scripts), não só para a tela de lançamento.
+        validar_quilometragem(
+            self.veiculo,
+            self.data,
+            self.km_inicial,
+            self.km_final,
+            viagem_id=self.pk,
+        )
 
     def save(self, *args, **kwargs):
         # Congela o centro de custo a partir do funcionário se ainda não veio.
@@ -148,3 +183,21 @@ class Viagem(models.Model):
         if self.km_inicial is not None and self.km_final is not None:
             self.km_percorrida = max(self.km_final - self.km_inicial, 0)
         super().save(*args, **kwargs)
+        # veiculo_id (e não self.veiculo.id): o campo é opcional e o acesso
+        # ao objeto estouraria AttributeError quando não há veículo.
+        if self.veiculo_id:
+            from .services import atualizar_km_veiculo
+
+            atualizar_km_veiculo(self.veiculo)
+
+
+@receiver(post_delete, sender=Viagem)
+def _recalcular_km_ao_excluir_viagem(sender, instance, **kwargs):
+    """
+    Excluir a maior viagem de um veículo tem que baixar o hodômetro — senão o
+    `km_atual` fica inflado e passa a barrar lançamentos legítimos.
+    """
+    from .services import atualizar_km_veiculo
+
+    if instance.veiculo_id:
+        atualizar_km_veiculo(instance.veiculo)

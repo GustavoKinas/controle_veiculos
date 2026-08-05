@@ -126,6 +126,31 @@
       background: rgba(4, 67, 34, 0.25);
       border-radius: 999px;
     }
+
+    /* O DaisyUI dá flex-grow:1 aos <p> do card-body (empurra as ações p/ o
+       rodapé); em cards curtos isso vira um bloco vazio. Anulamos aqui. */
+    .card-body > p { flex-grow: 0; }
+
+    /* Badges de status: deixam o corpo crescer com o conteúdo (sem clipar o
+       texto) e nunca quebram linha. */
+    .badge {
+      height: auto;
+      min-height: 1.5rem;
+      line-height: 1.1;
+      white-space: nowrap;
+      padding-top: 0.15rem;
+      padding-bottom: 0.15rem;
+    }
+
+    /* Contraste das linhas zebradas: o base-200 do tema é quase branco e
+       sumia sobre os cards brancos. Ajuste o 0.06 para mais/menos contraste. */
+    .table-zebra tbody tr:nth-child(even) {
+      background-color: rgba(4, 67, 34, 0.06);
+    }
+    /* Realce ao passar o mouse na linha (feedback sutil). */
+    .table tbody tr:hover {
+      background-color: rgba(134, 193, 63, 0.12);
+    }
   </style>
 
   {% block extra_head %}{% endblock %}
@@ -154,7 +179,6 @@
           </div>
 
           <div class="flex flex-1 items-center gap-3">
-            <img src="{% static 'logo.png' %}" alt="Logo" class="hidden h-9 w-auto sm:block" />
             <span class="text-lg font-extrabold tracking-tight">Controle de Veículos</span>
           </div>
 
