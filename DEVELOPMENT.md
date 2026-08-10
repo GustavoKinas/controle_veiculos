@@ -119,8 +119,14 @@ em script/import; o `_post_clean()` do ModelForm já leva os erros para os
 campos certos (a função levanta `ValidationError` com dicionário
 `{"km_inicial"/"km_final": ...}`).
 
+A regra vive em **três camadas**, de propósito: o formulário decide o que a
+tela oferece, o `Model.clean()` dá a mensagem boa no campo certo, e o banco
+garante a integridade contra qualquer caminho que não passe por `full_clean()`
+(`objects.create()`, `bulk_create()`, import, SQL direto).
+
 Regras, sempre **por veículo**:
-1. `km_final > km_inicial`;
+1. `km_final > km_inicial` — também gravada como `CheckConstraint`
+   (`km_final_gt_km_inicial`) em `Viagem.Meta.constraints`;
 2. **piso** — `km_inicial` não pode ser menor que o maior `km_final` já
    registrado para o veículo **até aquela data** (o hodômetro não anda para
    trás). Se o veículo ainda não tem nenhuma viagem, o piso é o `km_atual` do
@@ -128,6 +134,32 @@ Regras, sempre **por veículo**:
    é a regra 3);
 3. **teto** — `km_final` não pode invadir a faixa de um lançamento posterior
    já existente (`Min(km_inicial)` das viagens com `data` maior).
+
+`Viagem.clean()` também recusa **data futura** (a portaria lança a viagem
+depois que ela aconteceu). Usa `timezone.localdate()`, e não `date.today()`:
+em container UTC, o `today()` do sistema vira o dia seguinte às 21h de
+Brasília e rejeitaria lançamentos legítimos da noite. Essa regra fica só na
+camada 2 de propósito — uma `CheckConstraint` que consulta o relógio faz o
+veredito da mesma linha mudar com o tempo, o que contraria a premissa de que
+uma `CHECK` depende apenas dos dados da própria linha.
+
+`Viagem.veiculo` é **obrigatório** desde a migration `0004` (era opcional
+apenas porque o cadastro de veículos nasceu depois do de viagens). Isso muda o
+comportamento do atributo e é uma armadilha real: com `null=True`,
+`self.veiculo` devolvia `None` quando a FK estava vazia; com `null=False`, ele
+**levanta `RelatedObjectDoesNotExist`**. Como `Model.clean()` roda antes de
+qualquer INSERT — inclusive sobre um objeto pela metade, quando o campo falhou
+na validação de campo —, `Viagem.clean()` passa
+`self.veiculo if self.veiculo_id else None` para o validador: pergunta à
+coluna antes de tocar no objeto. Sem isso, enviar o formulário sem escolher
+veículo dá **erro 500** em vez de "este campo é obrigatório".
+
+Pelo mesmo motivo, `validar_quilometragem` e `Viagem.clean()` **acumulam** os
+erros num dicionário (`{campo: [mensagens]}`) e têm um único ponto de saída, em
+vez de levantar no primeiro problema encontrado — o operador corrige tudo de
+uma vez. O `clean()` usa `ValidationError.update_error_dict()`, o mesmo helper
+que o `Model.full_clean()` usa internamente para juntar os erros de
+`clean_fields()`, `clean()` e `validate_constraints()`.
 
 O hodômetro (`Veiculo.km_atual`) é recalculado por
 `services.atualizar_km_veiculo` no `save()` da viagem e num `post_delete`.
@@ -145,6 +177,7 @@ e barraria lançamentos legítimos. Com o veículo sem nenhuma viagem, o
 controle_veiculos/                 # raiz (contém manage.py)
 ├── .env.example                   # (NOVO) modelo de variáveis de ambiente
 ├── DEVELOPMENT.md                 # (NOVO) este documento
+├── ESTUDO.md                      # (NOVO) roteiro de estudo do backend
 ├── requirements.txt               # (corrigido)
 ├── docker-compose.yml             # (corrigido)
 ├── controle_veiculos/            # pacote de configuração (renomeado de controle_viagens)
@@ -173,7 +206,9 @@ controle_veiculos/                 # raiz (contém manage.py)
     ├── views.py                  # LancarViagem, Fechamento, FechamentoExportar, HistoricoFechamentos
     ├── urls.py
     ├── admin.py
-    ├── migrations/0001_initial.py
+    ├── tests.py                  # (NOVO) suíte/esqueleto de estudo — ver ESTUDO.md
+    ├── migrations/               # 0001_initial, 0002_veiculo, 0003_check_km,
+    │                             #   0004_veiculo_obrigatorio
     └── templates/                # lancar_viagem.html, fechamento.html, historico_fechamentos.html
 ```
 
@@ -187,9 +222,10 @@ controle_veiculos/                 # raiz (contém manage.py)
   `ativo`.
 - **Veiculo**: `placa` (única), `modelo`, `marca`, `km_atual` (hodômetro,
   recalculado a partir das viagens), `ativo`.
-- **Viagem**: `funcionario`, `veiculo?`, `data`, `km_inicial`, `km_final`,
+- **Viagem**: `funcionario`, `veiculo`, `data`, `km_inicial`, `km_final`,
   `km_percorrida` (calculado no save), `centro_custo` (congelado),
   `fechamento?`, `lancada_por?`, `criada_em`. Propriedade `fechada`.
+  `CheckConstraint` de `km_final > km_inicial`.
 - **Fechamento**: `data_inicio`, `data_fim`, `total_km`, `criado_por?`,
   `criado_em`.
 - **FechamentoRateio**: `fechamento`, `centro_custo`, `km_percorrida`,
@@ -278,5 +314,6 @@ Validado nesta implementação (com SQLite apenas para teste; produção é Post
 - Valor do combustível/custo por km no fechamento, para gerar o rateio em R$
   (hoje o rateio é por percentual de km — base para aplicar qualquer custo).
 - Vínculo com veículo (placa) na viagem, se necessário.
-- Testes automatizados em `viagens/tests.py` a partir dos cenários da seção 8.
+- Completar `viagens/tests.py` (o esqueleto existe; a maioria dos casos ainda
+  está como `skipTest`). Roteiro e exercícios em [ESTUDO.md](ESTUDO.md).
 - Relatório/exportação em PDF do fechamento (Excel já implementado).

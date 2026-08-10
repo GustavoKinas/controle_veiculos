@@ -55,7 +55,6 @@ class LancamentoViagemForm(forms.ModelForm):
         self.fields["funcionario"].empty_label = "Selecione um colaborador"
 
         self.fields["veiculo"].queryset = Veiculo.objects.filter(ativo=True).order_by("placa")
-        self.fields["veiculo"].required = True
         self.fields["veiculo"].empty_label = "Selecione um veículo"
 
     # A validação de quilometragem vive em Viagem.clean() e é executada pelo
@@ -90,4 +89,5 @@ class FechamentoFiltroForm(forms.Form):
             raise forms.ValidationError(
                 "A data de fim não pode ser anterior à data de início."
             )
+
         return cleaned

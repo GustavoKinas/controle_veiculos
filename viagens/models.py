@@ -2,7 +2,8 @@ from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
-
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 from colaboradores.models import CentroCusto
 
 
@@ -111,9 +112,6 @@ class Viagem(models.Model):
         Veiculo,
         on_delete=models.PROTECT,
         related_name="viagens",
-        null=True,
-        blank=True
-
     )
     data = models.DateField()
 
@@ -153,6 +151,14 @@ class Viagem(models.Model):
         verbose_name_plural = "Viagens"
         ordering = ["-data", "-id"]
         db_table = "viagem"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(km_final__gt=models.F('km_inicial')),
+                name='km_final_gt_km_inicial',
+                violation_error_message="A quilometragem final deve ser maior que a inicial.",
+            )
+        ]
+
 
     def __str__(self):
         return f"{self.funcionario} — {self.data:%d/%m/%Y} ({self.km_percorrida} km)"
@@ -162,18 +168,37 @@ class Viagem(models.Model):
         return self.fechamento_id is not None
 
     def clean(self):
+        erros = {}
         # Import tardio: services importa models (evita import circular).
         from .services import validar_quilometragem
 
         # Vale para qualquer caminho de validação (ModelForm, admin,
         # full_clean() em scripts), não só para a tela de lançamento.
-        validar_quilometragem(
-            self.veiculo,
-            self.data,
-            self.km_inicial,
-            self.km_final,
-            viagem_id=self.pk,
-        )
+        #
+        # clean() roda mesmo quando um campo já falhou na validação de campo, e
+        # aí o atributo chega vazio (o construct_instance não o preenche). Daí
+        # os `is not None` antes de cada comparação, e os valores em lista —
+        # é o formato que update_error_dict() espera para acumular.
+        if self.data is not None and self.data > timezone.localdate():
+            erros["data"] = ["A data da viagem não pode ser maior que a data atual."]
+
+        try:
+            validar_quilometragem(
+                # `self.veiculo` LEVANTA RelatedObjectDoesNotExist quando a FK
+                # é obrigatória e não foi preenchida — não devolve None. Por
+                # isso perguntamos à coluna (`veiculo_id`) antes de tocar no
+                # objeto: sem veículo, a validação de hodômetro não se aplica.
+                self.veiculo if self.veiculo_id else None,
+                self.data,
+                self.km_inicial,
+                self.km_final,
+                viagem_id=self.pk,
+            )
+        except ValidationError as e:
+            erros = e.update_error_dict(erros)
+
+        if erros:
+            raise ValidationError(erros)
 
     def save(self, *args, **kwargs):
         # Congela o centro de custo a partir do funcionário se ainda não veio.
@@ -181,14 +206,10 @@ class Viagem(models.Model):
             self.centro_custo_id = self.funcionario.centro_custo_id
         # Campo calculado persistido.
         if self.km_inicial is not None and self.km_final is not None:
-            self.km_percorrida = max(self.km_final - self.km_inicial, 0)
+            self.km_percorrida = self.km_final - self.km_inicial
         super().save(*args, **kwargs)
-        # veiculo_id (e não self.veiculo.id): o campo é opcional e o acesso
-        # ao objeto estouraria AttributeError quando não há veículo.
-        if self.veiculo_id:
-            from .services import atualizar_km_veiculo
-
-            atualizar_km_veiculo(self.veiculo)
+        from .services import atualizar_km_veiculo
+        atualizar_km_veiculo(self.veiculo)
 
 
 @receiver(post_delete, sender=Viagem)
@@ -199,5 +220,4 @@ def _recalcular_km_ao_excluir_viagem(sender, instance, **kwargs):
     """
     from .services import atualizar_km_veiculo
 
-    if instance.veiculo_id:
-        atualizar_km_veiculo(instance.veiculo)
+    atualizar_km_veiculo(instance.veiculo)
