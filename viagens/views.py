@@ -21,7 +21,7 @@ class LancarViagemView(LoginRequiredMixin, View):
         return {
             "form": form or LancamentoViagemForm(),
             "ultimas_viagens": (
-                Viagem.objects.select_related("funcionario", "centro_custo")
+                Viagem.objects.select_related("funcionario", "centro_custo", "veiculo")
                 .order_by("-criada_em")[:15]
             ),
         }

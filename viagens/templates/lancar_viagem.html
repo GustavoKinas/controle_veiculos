@@ -92,19 +92,28 @@
             <table class="table table-zebra table-sm">
               <thead>
                 <tr>
-                  <th>Data</th>
+                  <th class="w-24 whitespace-nowrap">Data</th>
                   <th>Colaborador</th>
-                  <th>C. Custo</th>
-                  <th class="text-right">KM</th>
-                  <th>Status</th>
+                  <th class="w-44 whitespace-nowrap">Veículo</th>
+                  <th class="w-28 whitespace-nowrap">C. Custo</th>
+                  <th class="w-20 text-right">KM</th>
+                  <th class="w-28">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {% for viagem in ultimas_viagens %}
                   <tr>
                     <td class="whitespace-nowrap">{{ viagem.data|date:"d/m/Y" }}</td>
-                    <td class="font-medium">{{ viagem.funcionario }}</td>
-                    <td>{{ viagem.centro_custo.codigo }}</td>
+                    <td>
+                      {# truncate precisa de um bloco interno: a tabela ignora max-width na célula #}
+                      <div class="max-w-[16rem] truncate font-medium"
+                           title="{{ viagem.funcionario }}">{{ viagem.funcionario }}</div>
+                    </td>
+                    <td class="whitespace-nowrap">
+                      <span class="font-medium">{{ viagem.veiculo.placa }}</span>
+                      <span class="text-base-content/60">· {{ viagem.veiculo.modelo }}</span>
+                    </td>
+                    <td class="whitespace-nowrap">{{ viagem.centro_custo.codigo }}</td>
                     <td class="text-right font-semibold tabular-nums">{{ viagem.km_percorrida }}</td>
                     <td>
                       {% if viagem.fechada %}

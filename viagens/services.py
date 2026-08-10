@@ -195,7 +195,7 @@ def confirmar_fechamento(data_inicio: date, data_fim: date, usuario=None):
         ]
     )
 
-    Viagem.objects.filter(id__in=[v.id for v in viagens]).update(fechamento=fechamento)
+    Viagem.objects.filter(id__in=[viagem.id for viagem in viagens]).update(fechamento=fechamento)
 
     return fechamento
 
