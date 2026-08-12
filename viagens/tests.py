@@ -29,6 +29,7 @@ from datetime import date, timedelta
 from unittest import expectedFailure
 
 from django.core.exceptions import ValidationError
+from django.db.utils import IntegrityError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -36,7 +37,8 @@ from django.utils import timezone
 from colaboradores.models import CentroCusto, Funcionario
 
 from .forms import LancamentoViagemForm
-from .models import Veiculo, Viagem
+from .models import ReservaViagem, Veiculo, Viagem
+from .services import montar_calendario
 
 
 class BaseViagensTest(TestCase):
@@ -313,7 +315,140 @@ class ViagensViewsTest(BaseViagensTest):
 
 
 # =========================================================================
-# 7. Lacunas conhecidas (caça aos bugs)
+# 7. Agenda / pré-cadastro (fases 1 e 2)
+# =========================================================================
+class ReservaViagemModelTest(BaseViagensTest):
+    def test_descricao_usa_o_cadastro_quando_identificado(self):
+        reserva = ReservaViagem.objects.create(
+            funcionario=self.funcionario,
+            solicitante_nome="ADRIANO A. BODNAR",
+            veiculo=self.strada,
+            data=timezone.localdate(),
+        )
+
+        self.assertEqual(reserva.descricao_solicitante, str(self.funcionario))
+
+    def test_descricao_cai_no_texto_do_outlook_quando_nao_identificado(self):
+        """O assunto do evento é texto livre e nem sempre casa com o cadastro."""
+        reserva = ReservaViagem.objects.create(
+            solicitante_nome="Tamara Suelen Köpp",
+            veiculo=self.strada,
+            data=timezone.localdate(),
+        )
+
+        self.assertIsNone(reserva.funcionario)
+        self.assertEqual(reserva.descricao_solicitante, "Tamara Suelen Köpp")
+
+    def test_reserva_pendente_com_data_passada_esta_atrasada(self):
+        reserva = ReservaViagem.objects.create(
+            veiculo=self.strada, data=timezone.localdate() - timedelta(days=1)
+        )
+
+        self.assertTrue(reserva.atrasada)
+
+    def test_id_externo_repetido_na_mesma_origem_e_recusado(self):
+        """Idempotência do sync: o mesmo evento não entra duas vezes."""
+        dados = {
+            "veiculo": self.strada,
+            "data": timezone.localdate(),
+            "origem": ReservaViagem.Origem.OUTLOOK,
+            "id_externo": "AAMkAG-123",
+        }
+        ReservaViagem.objects.create(**dados)
+
+        with self.assertRaises(IntegrityError):
+            ReservaViagem.objects.create(**dados)
+
+    def test_reservas_manuais_sem_id_externo_podem_repetir(self):
+        """A constraint é parcial: só vale para quem tem id externo."""
+        for _ in range(2):
+            ReservaViagem.objects.create(
+                veiculo=self.strada, data=timezone.localdate()
+            )
+
+        self.assertEqual(ReservaViagem.objects.count(), 2)
+
+
+class MontarCalendarioTest(BaseViagensTest):
+    def test_agrupa_reservas_por_dia_em_uma_unica_query(self):
+        hoje = timezone.localdate()
+        ReservaViagem.objects.create(veiculo=self.strada, data=hoje)
+        ReservaViagem.objects.create(veiculo=self.cronos, data=hoje)
+
+        with self.assertNumQueries(1):
+            calendario = montar_calendario(hoje.year, hoje.month)
+
+        dias = {dia: reservas for semana in calendario["semanas"] for dia, reservas in semana}
+        self.assertEqual(len(dias[hoje]), 2)
+        self.assertEqual(calendario["total_no_mes"], 2)
+
+    def test_grade_cobre_semanas_inteiras(self):
+        calendario = montar_calendario(2026, 8)
+
+        self.assertTrue(all(len(semana) == 7 for semana in calendario["semanas"]))
+        self.assertEqual(calendario["primeiro_dia"].weekday(), 0)   # segunda
+
+    def test_reserva_cancelada_nao_aparece(self):
+        hoje = timezone.localdate()
+        ReservaViagem.objects.create(
+            veiculo=self.strada, data=hoje, status=ReservaViagem.Status.CANCELADA
+        )
+
+        self.assertEqual(montar_calendario(hoje.year, hoje.month)["total_no_mes"], 0)
+
+
+@override_settings(
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    }
+)
+class AgendaViewTest(BaseViagensTest):
+    def test_exige_login(self):
+        resposta = self.client.get(reverse("agenda"))
+
+        self.assertEqual(resposta.status_code, 302)
+        self.assertIn("/login/", resposta["Location"])
+
+    def test_abre_no_dia_de_hoje(self):
+        self.client.force_login(self.portaria)
+        hoje = timezone.localdate()
+        ReservaViagem.objects.create(
+            veiculo=self.strada, data=hoje, solicitante_nome="FULANO DE TAL"
+        )
+
+        resposta = self.client.get(reverse("agenda"))
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.context["dia_selecionado"], hoje)
+        self.assertContains(resposta, "FULANO DE TAL")
+
+    def test_parametros_invalidos_caem_no_padrao_sem_estourar(self):
+        """`?dia=` e `?mes=` são entrada do usuário: nunca podem virar 500."""
+        self.client.force_login(self.portaria)
+
+        resposta = self.client.get(
+            reverse("agenda"), {"dia": "ontem", "ano": "abc", "mes": "13"}
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.context["dia_selecionado"], timezone.localdate())
+
+    def test_dia_selecionado_filtra_a_fila(self):
+        self.client.force_login(self.portaria)
+        amanha = timezone.localdate() + timedelta(days=1)
+        ReservaViagem.objects.create(veiculo=self.strada, data=amanha)
+
+        resposta = self.client.get(reverse("agenda"), {"dia": amanha.isoformat()})
+
+        self.assertEqual(resposta.context["dia_selecionado"], amanha)
+        self.assertEqual(len(resposta.context["reservas_do_dia"]), 1)
+
+
+# =========================================================================
+# 8. Lacunas conhecidas (caça aos bugs)
 #
 # `@expectedFailure` = "este teste descreve o comportamento CORRETO, que o
 # código ainda não tem". A suíte segue verde, mas a dívida fica documentada

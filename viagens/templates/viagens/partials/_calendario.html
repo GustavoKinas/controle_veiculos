@@ -1,0 +1,87 @@
+{% comment %}
+  Grade mensal da agenda.
+
+  Isolada num parcial para o htmx trocar via hx-select (mesmo padrão de
+  _tabela_colaboradores.html). O contexto vem de services.montar_calendario():
+  `semanas` é uma lista de semanas, cada uma com pares (dia, reservas_do_dia).
+{% endcomment %}
+<div id="calendario">
+
+  <!-- Navegação do mês -->
+  <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <div class="join">
+      <a class="btn btn-sm join-item"
+         href="?ano={{ mes_anterior.year }}&mes={{ mes_anterior.month }}&dia={{ dia_selecionado|date:'Y-m-d' }}"
+         hx-get="?ano={{ mes_anterior.year }}&mes={{ mes_anterior.month }}&dia={{ dia_selecionado|date:'Y-m-d' }}"
+         hx-target="#calendario" hx-select="#calendario" hx-swap="outerHTML" hx-push-url="true"
+         aria-label="Mês anterior">«</a>
+      <span class="btn btn-sm join-item no-animation pointer-events-none capitalize">
+        {{ mes_exibido|date:"F Y" }}
+      </span>
+      <a class="btn btn-sm join-item"
+         href="?ano={{ mes_seguinte.year }}&mes={{ mes_seguinte.month }}&dia={{ dia_selecionado|date:'Y-m-d' }}"
+         hx-get="?ano={{ mes_seguinte.year }}&mes={{ mes_seguinte.month }}&dia={{ dia_selecionado|date:'Y-m-d' }}"
+         hx-target="#calendario" hx-select="#calendario" hx-swap="outerHTML" hx-push-url="true"
+         aria-label="Próximo mês">»</a>
+    </div>
+    <span class="badge badge-ghost">{{ total_no_mes }} reserva{{ total_no_mes|pluralize:"s" }} no mês</span>
+  </div>
+
+  <!-- Grade (desktop) -->
+  <div class="hidden overflow-hidden rounded-box border border-base-300 sm:block">
+    <div class="grid grid-cols-7 bg-base-200 text-center text-xs font-semibold uppercase">
+      {% comment %} calendar.Calendar(firstweekday=0) começa na segunda. {% endcomment %}
+      <div class="px-1 py-2">Seg</div>
+      <div class="px-1 py-2">Ter</div>
+      <div class="px-1 py-2">Qua</div>
+      <div class="px-1 py-2">Qui</div>
+      <div class="px-1 py-2">Sex</div>
+      <div class="px-1 py-2">Sáb</div>
+      <div class="px-1 py-2">Dom</div>
+    </div>
+
+    <div class="grid grid-cols-7 gap-px bg-base-300">
+      {% for semana in semanas %}
+        {% for dia, reservas_do_dia in semana %}
+          <div class="min-h-24 bg-base-100 p-1
+                      {% if dia.month != mes_exibido.month %}opacity-40{% endif %}
+                      {% if dia == dia_selecionado %}ring-2 ring-inset ring-primary{% endif %}">
+            <a href="?dia={{ dia|date:'Y-m-d' }}"
+               class="mb-1 flex items-center justify-between text-xs">
+              <span class="{% if dia == hoje %}badge badge-primary badge-sm{% else %}px-1{% endif %}">
+                {{ dia.day }}
+              </span>
+            </a>
+
+            {% for reserva in reservas_do_dia %}
+              <a href="?dia={{ dia|date:'Y-m-d' }}"
+                 title="{{ reserva.descricao_solicitante }} — {{ reserva.veiculo }}"
+                 class="mb-0.5 block truncate rounded px-1 py-0.5 text-xs
+                        {% if reserva.status == 'lancada' %}bg-base-200 text-base-content/60
+                        {% elif reserva.atrasada %}bg-error/20 text-error
+                        {% else %}bg-brand/20{% endif %}">
+                {% if reserva.hora_inicio %}{{ reserva.hora_inicio|time:"H:i" }} {% endif %}
+                {{ reserva.veiculo.placa }}
+              </a>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Lista (mobile): grade de 7 colunas é ilegível em tela pequena -->
+  <div class="space-y-2 sm:hidden">
+    {% for semana in semanas %}
+      {% for dia, reservas_do_dia in semana %}
+        {% if reservas_do_dia and dia.month == mes_exibido.month %}
+          <a href="?dia={{ dia|date:'Y-m-d' }}"
+             class="flex items-center justify-between rounded-box border border-base-300 px-3 py-2">
+            <span class="text-sm font-medium">{{ dia|date:"D, d/m" }}</span>
+            <span class="badge badge-sm">{{ reservas_do_dia|length }}</span>
+          </a>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+  </div>
+</div>

@@ -83,12 +83,26 @@ class Veiculo(models.Model):
     km_atual = models.PositiveBigIntegerField(default=0)
     ativo = models.BooleanField(default=True)
 
+    # Caixa de recurso do veículo no Outlook. É o `scheduleId` devolvido pela
+    # Microsoft Graph e a única chave confiável para ligar uma reserva ao
+    # veículo. Fica opcional: veículo sem agenda no Outlook continua válido.
+    email_recurso = models.EmailField(blank=True, default="")
+
     class Meta:
         verbose_name = "Veículo"
         verbose_name_plural = "Veículos"
         ordering = ["modelo"]
         db_table = "veiculos"
-        
+        constraints = [
+            # Unicidade só entre os veículos que têm caixa de recurso: vários
+            # podem ficar com o campo em branco.
+            models.UniqueConstraint(
+                fields=["email_recurso"],
+                condition=~models.Q(email_recurso=""),
+                name="uniq_veiculo_por_email_recurso",
+            )
+        ]
+
 
     def __str__(self):
         return f"{self.marca} - {self.modelo} - {self.placa}"
@@ -221,3 +235,117 @@ def _recalcular_km_ao_excluir_viagem(sender, instance, **kwargs):
     from .services import atualizar_km_veiculo
 
     atualizar_km_veiculo(instance.veiculo)
+
+
+class ReservaViagem(models.Model):
+    """
+    Pré-cadastro de viagem: a *intenção* de usar um veículo numa data.
+
+    Não confundir com `Viagem`, que é o fato consumado e a única fonte do
+    rateio. Reserva pode ser cancelada, remarcada ou nunca virar viagem, e
+    nada disso pode tocar no fechamento (ver docs/PRE_CADASTRO_VIAGENS.md §3).
+
+    A origem final é o Outlook, via Microsoft Graph: cada veículo é uma caixa
+    de recurso e cada reserva, um evento na agenda dela.
+    """
+
+    class Status(models.TextChoices):
+        PENDENTE = "pendente", "Pendente"
+        LANCADA = "lancada", "Lançada"
+        CANCELADA = "cancelada", "Cancelada"
+
+    class Origem(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        OUTLOOK = "outlook", "Outlook"
+
+    id = models.AutoField(primary_key=True)
+
+    # Opcional de propósito: o Graph devolve o solicitante como texto livre no
+    # assunto do evento (ver `solicitante_nome`), que nem sempre casa com um
+    # cadastro. Reserva sem colaborador identificado ainda é útil — o operador
+    # resolve na hora de lançar.
+    funcionario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="reservas",
+        null=True,
+        blank=True,
+    )
+    # Texto cru vindo do assunto do evento, preservado mesmo quando o
+    # `funcionario` foi identificado: é o rastro da origem.
+    solicitante_nome = models.CharField(max_length=200, blank=True, default="")
+
+    veiculo = models.ForeignKey(
+        Veiculo,
+        on_delete=models.PROTECT,
+        related_name="reservas",
+    )
+
+    data = models.DateField()
+    hora_inicio = models.TimeField(null=True, blank=True)
+    hora_fim = models.TimeField(null=True, blank=True)
+    destino = models.CharField(max_length=200, blank=True, default="")
+
+    origem = models.CharField(
+        max_length=20, choices=Origem.choices, default=Origem.MANUAL
+    )
+    # Id do evento no Outlook. Chave de idempotência do sync (fase 4).
+    id_externo = models.CharField(max_length=255, blank=True, default="")
+
+    # Três estados, então status explícito — a FK `viagem` sozinha não
+    # distingue "cancelada" de "pendente" (ao contrário de Viagem.fechamento,
+    # onde dois estados cabem na presença/ausência da FK).
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDENTE
+    )
+
+    # Rastreabilidade: qual lançamento nasceu desta reserva.
+    viagem = models.OneToOneField(
+        Viagem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reserva",
+    )
+
+    criada_em = models.DateTimeField(auto_now_add=True)
+    atualizada_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Reserva de Viagem"
+        verbose_name_plural = "Reservas de Viagem"
+        ordering = ["data", "hora_inicio", "id"]
+        db_table = "reserva_viagem"
+        indexes = [
+            # A consulta da agenda é sempre "reservas deste intervalo, por status".
+            models.Index(fields=["data", "status"], name="idx_reserva_data_status"),
+        ]
+        constraints = [
+            # Idempotência do sync: rodar duas vezes não duplica. A condição
+            # libera as reservas manuais, que não têm id externo.
+            models.UniqueConstraint(
+                fields=["origem", "id_externo"],
+                condition=~models.Q(id_externo=""),
+                name="uniq_reserva_por_evento_externo",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        quem = self.funcionario or self.solicitante_nome or "Solicitante não identificado"
+        return f"{quem} — {self.data:%d/%m/%Y} ({self.veiculo})"
+
+    @property
+    def pendente(self) -> bool:
+        return self.status == self.Status.PENDENTE
+
+    @property
+    def atrasada(self) -> bool:
+        """Pendente com a data já passada: precisa de atenção do operador."""
+        return self.pendente and self.data < timezone.localdate()
+
+    @property
+    def descricao_solicitante(self) -> str:
+        """Nome a exibir, com fallback para o texto cru vindo do Outlook."""
+        if self.funcionario_id:
+            return str(self.funcionario)
+        return self.solicitante_nome or "Não identificado"

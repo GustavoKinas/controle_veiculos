@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AgendaView,
     FechamentoExportarView,
     FechamentoView,
     HistoricoFechamentosView,
@@ -8,6 +9,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("agenda/", AgendaView.as_view(), name="agenda"),
     path("lancar/", LancarViagemView.as_view(), name="lancar_viagem"),
     path("fechamento/", FechamentoView.as_view(), name="fechamento"),
     path(

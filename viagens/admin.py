@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Fechamento, FechamentoRateio, Viagem, Veiculo
+from .models import Fechamento, FechamentoRateio, ReservaViagem, Viagem, Veiculo
 
 
 class FechamentoRateioInline(admin.TabularInline):
@@ -39,5 +39,26 @@ class FechamentoAdmin(admin.ModelAdmin):
 class VeiculoAdmin(admin.ModelAdmin):
     list_display = ("__str__", "placa", "modelo", "marca", "km_atual", "ativo")
     list_filter = ("ativo", "marca")
-    search_fields = ("placa", "modelo", "marca")
+    search_fields = ("placa", "modelo", "marca", "email_recurso")
+
+
+@admin.register(ReservaViagem)
+class ReservaViagemAdmin(admin.ModelAdmin):
+    """Cadastro manual de reservas enquanto o sync com o Outlook não existe."""
+
+    list_display = (
+        "data",
+        "hora_inicio",
+        "descricao_solicitante",
+        "veiculo",
+        "status",
+        "origem",
+        "viagem",
+    )
+    list_filter = ("status", "origem", "veiculo")
+    search_fields = ("solicitante_nome", "funcionario__nome", "destino", "id_externo")
+    date_hierarchy = "data"
+    autocomplete_fields = ("veiculo",)
+    # Preenchidos pelo fluxo de lançamento (fase 3), nunca à mão.
+    readonly_fields = ("viagem", "criada_em", "atualizada_em")
 

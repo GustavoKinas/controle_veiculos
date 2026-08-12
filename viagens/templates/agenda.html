@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+
+{% block title %}Agenda de viagens — Controle de Veículos{% endblock %}
+
+{% block page_badge %}
+  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
+{% endblock %}
+{% block page_title %}Agenda de viagens{% endblock %}
+{% block page_subtitle %}
+  Reservas de veículos pré-cadastradas. Selecione um dia para ver a fila de
+  lançamentos pendentes.
+{% endblock %}
+
+{% block content %}
+<div class="grid gap-6 lg:grid-cols-5">
+
+  <!-- Fila do dia selecionado: é o trabalho concreto do operador -->
+  <div class="lg:col-span-2">
+    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
+      <div class="card-body">
+        <div class="flex items-center justify-between">
+          <h2 class="card-title">
+            {% if dia_selecionado == hoje %}Hoje{% else %}{{ dia_selecionado|date:"l" }}{% endif %},
+            {{ dia_selecionado|date:"d/m" }}
+          </h2>
+          <span class="badge badge-ghost">
+            {{ reservas_do_dia|length }} reserva{{ reservas_do_dia|length|pluralize:"s" }}
+          </span>
+        </div>
+
+        {% if reservas_do_dia %}
+          <div class="mt-2 space-y-2">
+            {% for reserva in reservas_do_dia %}
+              <div class="rounded-box border border-base-300 p-3
+                          {% if reserva.status == 'lancada' %}opacity-60{% endif %}">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <p class="truncate font-semibold" title="{{ reserva.descricao_solicitante }}">
+                      {% if reserva.hora_inicio %}
+                        <span class="font-mono text-sm">{{ reserva.hora_inicio|time:"H:i" }}</span>
+                      {% endif %}
+                      {{ reserva.descricao_solicitante }}
+                    </p>
+                    <p class="text-sm text-base-content/70">
+                      {{ reserva.veiculo.placa }} · {{ reserva.veiculo.modelo }}
+                      {% if reserva.destino %} — {{ reserva.destino }}{% endif %}
+                    </p>
+                  </div>
+
+                  {% if reserva.status == 'lancada' %}
+                    <span class="badge badge-ghost badge-sm shrink-0">Lançada</span>
+                  {% elif reserva.atrasada %}
+                    <span class="badge badge-error badge-sm shrink-0 text-white">Atrasada</span>
+                  {% else %}
+                    <span class="badge badge-success badge-sm shrink-0 text-success-content">Pendente</span>
+                  {% endif %}
+                </div>
+
+                {% if reserva.pendente %}
+                  {% comment %}
+                    Fase 3 troca este botão por um link para `lancar_reserva`.
+                    Desabilitado em vez de omitido: comunica a intenção da tela
+                    sem prometer uma rota que ainda não existe.
+                  {% endcomment %}
+                  <button class="btn btn-primary btn-sm mt-3 w-full" disabled
+                          title="Disponível na próxima fase">Lançar KM</button>
+                {% elif reserva.viagem_id %}
+                  <p class="mt-2 text-xs text-base-content/60">
+                    {{ reserva.viagem.km_percorrida }} km lançados
+                  </p>
+                {% endif %}
+
+                {% if not reserva.funcionario_id %}
+                  <p class="mt-2 text-xs text-warning">
+                    Colaborador não identificado no cadastro
+                  </p>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="py-10 text-center text-base-content/50">
+            Nenhuma reserva para este dia.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Panorama do mês -->
+  <div class="lg:col-span-3">
+    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
+      <div class="card-body">
+        {% include 'viagens/partials/_calendario.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

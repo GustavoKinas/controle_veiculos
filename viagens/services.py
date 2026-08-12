@@ -5,15 +5,16 @@ Mantidas fora das views para ficarem reutilizáveis (preview na tela, confirmaç
 via POST, futuros comandos/relatórios) e testáveis isoladamente.
 """
 
+import calendar
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 from datetime import date
 
 from django.db import transaction
-from django.db.models import Sum, Max, Min
+from django.db.models import Sum, Max, Min, QuerySet
 from django.core.exceptions import ValidationError
 
-from .models import Fechamento, FechamentoRateio, Viagem
+from .models import Fechamento, FechamentoRateio, ReservaViagem, Viagem
 
 CEM = Decimal("100")
 DUAS_CASAS = Decimal("0.01")
@@ -103,6 +104,57 @@ def atualizar_km_veiculo(veiculo):
     if veiculo.km_atual != maior_km:
         veiculo.km_atual = maior_km
         veiculo.save(update_fields=["km_atual"])
+
+# ---------------------------------------------------------------------------
+# Agenda / pré-cadastro de viagens
+# ---------------------------------------------------------------------------
+
+def reservas_no_periodo(data_inicio: date, data_fim: date) -> QuerySet[ReservaViagem]:
+    """
+    Reservas visíveis na agenda entre duas datas (limites inclusivos).
+
+    Canceladas ficam de fora: são ruído para o operador. O `select_related`
+    evita N+1 — a agenda renderiza funcionário e veículo de cada card.
+    """
+    return (
+        ReservaViagem.objects.filter(data__range=(data_inicio, data_fim))
+        .exclude(status=ReservaViagem.Status.CANCELADA)
+        .select_related("funcionario", "veiculo")
+        .order_by("hora_inicio", "id")
+    )
+
+
+def montar_calendario(ano: int, mes: int) -> dict:
+    """
+    Monta a grade mensal da agenda em **uma única query**.
+
+    Devolve as semanas já no formato que o template consome — pares
+    `(dia, reservas_do_dia)` —, porque o template do Django não sabe acessar
+    dicionário por chave dinâmica. Uma query por dia seriam 35+ queries.
+
+    A grade inclui os dias vizinhos que completam a primeira e a última
+    semana; o template os exibe esmaecidos (`dia.month != mes`).
+    """
+    semanas = calendar.Calendar(firstweekday=0).monthdatescalendar(ano, mes)
+    primeiro_dia, ultimo_dia = semanas[0][0], semanas[-1][-1]
+
+    agrupadas: dict[date, list[ReservaViagem]] = defaultdict(list)
+    for reserva in reservas_no_periodo(primeiro_dia, ultimo_dia):
+        agrupadas[reserva.data].append(reserva)
+
+    return {
+        "semanas": [
+            [(dia, agrupadas.get(dia, [])) for dia in semana] for semana in semanas
+        ],
+        "primeiro_dia": primeiro_dia,
+        "ultimo_dia": ultimo_dia,
+        "total_no_mes": sum(
+            len(reservas)
+            for dia, reservas in agrupadas.items()
+            if dia.month == mes and dia.year == ano
+        ),
+    }
+
 
 def viagens_em_aberto(data_inicio: date, data_fim: date):
     """Viagens no período que ainda NÃO entraram em nenhum fechamento."""

@@ -257,6 +257,11 @@
         <ul class="menu w-full grow gap-1 px-3 py-4 text-base-content">
           <li class="menu-title">Viagens</li>
           <li>
+            <a href="{% url 'agenda' %}" class="{% if request.resolver_match.url_name == 'agenda' %}active{% endif %}">
+              📅 Agenda
+            </a>
+          </li>
+          <li>
             <a href="{% url 'lancar_viagem' %}" class="{% if request.resolver_match.url_name == 'lancar_viagem' %}active{% endif %}">
               📝 Lançar viagem
             </a>
