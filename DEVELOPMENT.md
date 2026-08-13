@@ -1,7 +1,10 @@
 # Controle de Veículos — Viagens e Rateio de Combustível
 
-Documento de contexto do desenvolvimento. Serve tanto para retomar o trabalho
-quanto para ser reenviado como contexto para futuros modelos de LLM.
+Documento de **arquitetura**: modelos, telas e o porquê de cada decisão de
+projeto.
+
+> Para **retomar o trabalho** (estado atual, pendências, armadilhas já pagas),
+> comece por [docs/CONTEXTO_RETOMADA.md](docs/CONTEXTO_RETOMADA.md).
 
 ---
 
