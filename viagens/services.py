@@ -15,7 +15,9 @@ from django.db.models import Sum, Max, Min, QuerySet
 from django.db.models.functions import Coalesce
 from django.core.exceptions import ValidationError
 
-from .models import Fechamento, FechamentoRateio, ReservaViagem, Viagem
+from colaboradores.models import Funcionario
+
+from .models import Fechamento, FechamentoRateio, ReservaViagem, Veiculo, Viagem
 
 
 class ReservaIndisponivel(Exception):
@@ -158,6 +160,146 @@ def reservas_no_periodo(data_inicio: date, data_fim: date) -> QuerySet[ReservaVi
         .select_related("funcionario", "veiculo", "viagem")
         .order_by("hora_inicio", "id")
     )
+
+
+@transaction.atomic
+def sincronizar_reservas(
+    *,
+    eventos: list[dict],
+    caixas_consultadas: set[str],
+    data_inicio: date,
+    data_fim: date,
+) -> dict:
+    """
+    Aplica no banco os eventos já normalizados pela borda da integração.
+
+    Idempotente: a identidade de uma reserva é o `id_externo` (o id do evento
+    no Outlook), nunca a combinação veículo+solicitante+período — uma reunião
+    remarcada mantém o mesmo id e muda o horário; com chave natural o sync
+    entenderia "sumiu uma, nasceu outra" e duplicaria o registro.
+
+    Quatro queries, independentemente do volume: veículos, funcionários,
+    reservas existentes e as ausentes da janela.
+
+    Regras de estado:
+
+    | Estado atual | No Outlook          | Ação                       |
+    |--------------|---------------------|----------------------------|
+    | (nova)       | presente            | cria PENDENTE              |
+    | PENDENTE     | alterada            | atualiza                   |
+    | PENDENTE     | cancelada ou sumiu  | CANCELADA                  |
+    | CANCELADA    | reapareceu          | volta para PENDENTE        |
+    | LANCADA      | qualquer coisa      | **nada** — o fato aconteceu|
+
+    `caixas_consultadas` é o que torna a varredura de ausentes segura: uma
+    caixa cuja chamada falhou volta sem eventos, e tratar isso como "sumiu
+    tudo" cancelaria reservas legítimas. Só o que foi efetivamente consultado
+    entra na varredura.
+    """
+    resumo = {
+        "criadas": 0,
+        "atualizadas": 0,
+        "canceladas": 0,
+        "reabertas": 0,
+        "ignoradas_sem_veiculo": 0,
+        "intocadas_lancadas": 0,
+    }
+    if not caixas_consultadas:
+        return resumo
+
+    # 1. Veículos por caixa de recurso — 1 query.
+    veiculos = {
+        veiculo.email_recurso.lower(): veiculo
+        for veiculo in Veiculo.objects.exclude(email_recurso="")
+    }
+
+    # 2. Colaboradores pelos e-mails que apareceram no lote — 1 query.
+    #    Tudo em minúsculo dos dois lados: o `IN` do Postgres diferencia caixa.
+    emails = {e["solicitante_email"] for e in eventos if e["solicitante_email"]}
+    funcionarios = {
+        funcionario.email.lower(): funcionario
+        for funcionario in Funcionario.objects.filter(email__in=emails)
+    }
+
+    # 3. Reservas já conhecidas, pela chave de idempotência — 1 query.
+    ids_do_lote = [e["id_externo"] for e in eventos]
+    existentes = {
+        reserva.id_externo: reserva
+        for reserva in ReservaViagem.objects.filter(
+            origem=ReservaViagem.Origem.OUTLOOK, id_externo__in=ids_do_lote
+        )
+    }
+
+    ids_vistos: set[str] = set()
+
+    for evento in eventos:
+        veiculo = veiculos.get(evento["email_recurso"])
+        if veiculo is None:
+            # Caixa de recurso sem veículo cadastrado: não é erro, é uma sala
+            # que ainda não virou veículo no sistema.
+            resumo["ignoradas_sem_veiculo"] += 1
+            continue
+
+        ids_vistos.add(evento["id_externo"])
+        reserva = existentes.get(evento["id_externo"])
+
+        if reserva is not None and reserva.status == ReservaViagem.Status.LANCADA:
+            # A viagem já aconteceu e tem quilometragem. O passado não se
+            # reescreve, aconteça o que acontecer no Outlook.
+            resumo["intocadas_lancadas"] += 1
+            continue
+
+        if evento["cancelado"]:
+            if reserva is not None and reserva.status != ReservaViagem.Status.CANCELADA:
+                reserva.status = ReservaViagem.Status.CANCELADA
+                reserva.save(update_fields=["status", "atualizada_em"])
+                resumo["canceladas"] += 1
+            continue
+
+        campos = {
+            "funcionario": funcionarios.get(evento["solicitante_email"]),
+            "solicitante_nome": evento["solicitante_nome"],
+            "solicitante_email": evento["solicitante_email"],
+            "veiculo": veiculo,
+            "data": evento["data"],
+            "hora_inicio": evento["hora_inicio"],
+            "hora_fim": evento["hora_fim"],
+        }
+
+        if reserva is None:
+            ReservaViagem.objects.create(
+                origem=ReservaViagem.Origem.OUTLOOK,
+                id_externo=evento["id_externo"],
+                status=ReservaViagem.Status.PENDENTE,
+                **campos,
+            )
+            resumo["criadas"] += 1
+            continue
+
+        reabrindo = reserva.status == ReservaViagem.Status.CANCELADA
+        for campo, valor in campos.items():
+            setattr(reserva, campo, valor)
+        reserva.status = ReservaViagem.Status.PENDENTE
+        reserva.save()
+        resumo["reabertas" if reabrindo else "atualizadas"] += 1
+
+    # 4. Ausentes: pendentes na janela, de caixas consultadas com sucesso, que
+    #    não vieram no payload. Evento EXCLUÍDO no Outlook não chega marcado —
+    #    ele simplesmente some, e esta varredura é a única forma de detectá-lo.
+    canceladas = (
+        ReservaViagem.objects.filter(
+            origem=ReservaViagem.Origem.OUTLOOK,
+            status=ReservaViagem.Status.PENDENTE,
+            data__gte=data_inicio,
+            data__lte=data_fim,
+            veiculo__email_recurso__in=caixas_consultadas,
+        )
+        .exclude(id_externo__in=ids_vistos)
+        .update(status=ReservaViagem.Status.CANCELADA)
+    )
+    resumo["canceladas"] += canceladas
+
+    return resumo
 
 
 def montar_calendario(ano: int, mes: int) -> dict:

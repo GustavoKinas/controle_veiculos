@@ -47,6 +47,7 @@ from .services import (
     lancar_viagem_da_reserva,
     montar_calendario,
     registrar_chegada,
+    sincronizar_reservas,
 )
 
 
@@ -543,6 +544,167 @@ class NormalizarEventoTest(TestCase):
         """Um evento inaproveitável não pode derrubar o lote inteiro."""
         self.assertIsNone(normalizar_evento(self.evento(id=None), "sala@x.com"))
         self.assertIsNone(normalizar_evento(self.evento(start=None), "sala@x.com"))
+
+
+class SincronizarReservasTest(BaseViagensTest):
+    """Regras de estado e idempotência do upsert."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.strada.email_recurso = "sala.a@empresa.com"
+        cls.strada.save(update_fields=["email_recurso"])
+        cls.cronos.email_recurso = "sala.b@empresa.com"
+        cls.cronos.save(update_fields=["email_recurso"])
+        cls.funcionario.email = "adriano@empresa.com"
+        cls.funcionario.save(update_fields=["email"])
+
+    def evento(self, **kwargs) -> dict:
+        dados = {
+            "id_externo": "evt-1",
+            "email_recurso": "sala.a@empresa.com",
+            "solicitante_email": "adriano@empresa.com",
+            "solicitante_nome": "ADRIANO AMBROSIO BODNAR",
+            "data": timezone.localdate(),
+            "hora_inicio": time(8, 0),
+            "hora_fim": time(9, 0),
+            "cancelado": False,
+        }
+        dados.update(kwargs)
+        return dados
+
+    def sincronizar(self, eventos, caixas=None, dias=30):
+        hoje = timezone.localdate()
+        return sincronizar_reservas(
+            eventos=eventos,
+            caixas_consultadas=caixas
+            if caixas is not None
+            else {"sala.a@empresa.com", "sala.b@empresa.com"},
+            data_inicio=hoje,
+            data_fim=hoje + timedelta(days=dias),
+        )
+
+    def test_cria_reserva_e_casa_o_colaborador_por_email(self):
+        resumo = self.sincronizar([self.evento()])
+
+        self.assertEqual(resumo["criadas"], 1)
+        reserva = ReservaViagem.objects.get()
+        self.assertEqual(reserva.funcionario, self.funcionario)
+        self.assertEqual(reserva.veiculo, self.strada)
+        self.assertEqual(reserva.status, ReservaViagem.Status.PENDENTE)
+
+    def test_rodar_duas_vezes_nao_duplica(self):
+        """Idempotência: a chave é o id_externo."""
+        self.sincronizar([self.evento()])
+        resumo = self.sincronizar([self.evento()])
+
+        self.assertEqual(resumo["criadas"], 0)
+        self.assertEqual(resumo["atualizadas"], 1)
+        self.assertEqual(ReservaViagem.objects.count(), 1)
+
+    def test_evento_remarcado_atualiza_em_vez_de_duplicar(self):
+        """
+        O caso que a chave natural (veículo+solicitante+período) quebraria:
+        o horário muda, o id não.
+        """
+        self.sincronizar([self.evento()])
+
+        self.sincronizar([self.evento(hora_inicio=time(14, 0), hora_fim=time(15, 0))])
+
+        reserva = ReservaViagem.objects.get()
+        self.assertEqual(reserva.hora_inicio, time(14, 0))
+
+    def test_solicitante_sem_cadastro_fica_sem_colaborador(self):
+        self.sincronizar(
+            [self.evento(solicitante_email="ninguem@empresa.com", solicitante_nome="Fulano")]
+        )
+
+        reserva = ReservaViagem.objects.get()
+        self.assertIsNone(reserva.funcionario)
+        self.assertEqual(reserva.solicitante_nome, "Fulano")
+        # O e-mail fica guardado: é a chave para reconciliar depois.
+        self.assertEqual(reserva.solicitante_email, "ninguem@empresa.com")
+
+    def test_caixa_sem_veiculo_cadastrado_e_ignorada(self):
+        resumo = self.sincronizar([self.evento(email_recurso="sala.z@empresa.com")])
+
+        self.assertEqual(resumo["ignoradas_sem_veiculo"], 1)
+        self.assertEqual(ReservaViagem.objects.count(), 0)
+
+    def test_evento_cancelado_no_outlook_cancela_a_reserva(self):
+        self.sincronizar([self.evento()])
+
+        resumo = self.sincronizar([self.evento(cancelado=True)])
+
+        self.assertEqual(resumo["canceladas"], 1)
+        self.assertEqual(
+            ReservaViagem.objects.get().status, ReservaViagem.Status.CANCELADA
+        )
+
+    def test_evento_excluido_do_outlook_some_e_e_cancelado(self):
+        """
+        Evento EXCLUÍDO não vem marcado — ele simplesmente não está no payload.
+        A varredura de ausentes é a única forma de detectá-lo.
+        """
+        self.sincronizar([self.evento()])
+
+        resumo = self.sincronizar([])
+
+        self.assertEqual(resumo["canceladas"], 1)
+        self.assertEqual(
+            ReservaViagem.objects.get().status, ReservaViagem.Status.CANCELADA
+        )
+
+    def test_caixa_que_falhou_nao_tem_reservas_canceladas(self):
+        """
+        A proteção mais importante do sync: um 403 numa sala faz seus eventos
+        sumirem do payload. Sem `caixas_consultadas`, isso seria lido como
+        "tudo foi excluído no Outlook" e cancelaria reservas legítimas.
+        """
+        self.sincronizar([self.evento()])
+
+        # A caixa da reserva não foi consultada nesta rodada (falhou).
+        resumo = self.sincronizar([], caixas={"sala.b@empresa.com"})
+
+        self.assertEqual(resumo["canceladas"], 0)
+        self.assertEqual(
+            ReservaViagem.objects.get().status, ReservaViagem.Status.PENDENTE
+        )
+
+    def test_reserva_lancada_e_intocavel(self):
+        """A viagem aconteceu e tem quilometragem — o passado não se reescreve."""
+        self.sincronizar([self.evento()])
+        reserva = ReservaViagem.objects.get()
+        reserva.status = ReservaViagem.Status.LANCADA
+        reserva.save(update_fields=["status"])
+
+        resumo = self.sincronizar([self.evento(cancelado=True)])
+
+        reserva.refresh_from_db()
+        self.assertEqual(resumo["intocadas_lancadas"], 1)
+        self.assertEqual(reserva.status, ReservaViagem.Status.LANCADA)
+
+    def test_evento_que_reaparece_volta_para_pendente(self):
+        self.sincronizar([self.evento()])
+        self.sincronizar([self.evento(cancelado=True)])
+
+        resumo = self.sincronizar([self.evento()])
+
+        self.assertEqual(resumo["reabertas"], 1)
+        self.assertEqual(
+            ReservaViagem.objects.get().status, ReservaViagem.Status.PENDENTE
+        )
+
+    def test_nenhuma_caixa_consultada_nao_cancela_nada(self):
+        """Sync que falhou por inteiro não pode ter efeito destrutivo."""
+        self.sincronizar([self.evento()])
+
+        resumo = self.sincronizar([], caixas=set())
+
+        self.assertEqual(resumo["canceladas"], 0)
+        self.assertEqual(
+            ReservaViagem.objects.get().status, ReservaViagem.Status.PENDENTE
+        )
 
 
 class FuncionarioEmailTest(TestCase):
