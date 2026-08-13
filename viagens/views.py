@@ -9,13 +9,24 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView
 
+from django.core.exceptions import ValidationError
+
 from .exports import exportar_fechamento_excel
-from .forms import FechamentoFiltroForm, LancamentoViagemForm
-from .models import Fechamento, Viagem
+from .forms import (
+    FechamentoFiltroForm,
+    LancamentoDeReservaForm,
+    LancamentoViagemForm,
+    RegistrarChegadaForm,
+)
+from .models import Fechamento, ReservaViagem, Viagem
 from .services import (
+    ReservaIndisponivel,
+    ViagemNaoEstaEmAndamento,
     calcular_rateio,
     confirmar_fechamento,
+    lancar_viagem_da_reserva,
     montar_calendario,
+    registrar_chegada,
     reservas_no_periodo,
 )
 
@@ -37,6 +48,28 @@ def _mes_do_parametro(ano: str | None, mes: str | None, padrao: date) -> date:
         return date(int(ano), int(mes), 1)
     except (TypeError, ValueError):
         return padrao.replace(day=1)
+
+
+def _aplicar_erros_do_modelo(form, erro: ValidationError) -> None:
+    """
+    Leva um `ValidationError` vindo do modelo para o formulário.
+
+    `form.add_error(None, erro)` levanta `ValueError` quando o dicionário de
+    erros cita um campo que o formulário não possui — e nos formulários de
+    reserva isso é a regra, não a exceção: `data`, `veiculo` e `funcionario`
+    vêm da reserva e **de propósito** não existem como campos editáveis.
+
+    Erro endereçado a campo que existe no form vai para o campo; o resto vira
+    erro geral, exibido no topo. Assim uma regra nova no modelo nunca derruba
+    a tela com um 500.
+    """
+    if not hasattr(erro, "error_dict"):
+        form.add_error(None, erro)
+        return
+
+    for campo, mensagens in erro.error_dict.items():
+        destino = campo if campo in form.fields else None
+        form.add_error(destino, mensagens)
 
 
 class AgendaView(LoginRequiredMixin, View):
@@ -76,6 +109,129 @@ class AgendaView(LoginRequiredMixin, View):
             "mes_seguinte": (mes_exibido + timedelta(days=32)).replace(day=1),
         }
         return render(request, self.template_name, contexto)
+
+
+class LancarReservaView(LoginRequiredMixin, View):
+    """
+    Conclusão de uma reserva (fase 3), atendendo os dois fluxos da portaria.
+
+    GET  → formulário com os dados da reserva em texto fixo.
+    POST → cria a `Viagem` e marca a reserva como lançada.
+
+    A view não constrói a viagem: isso é responsabilidade de
+    `services.lancar_viagem_da_reserva`, que faz o trabalho dentro de uma
+    transação. Aqui só traduzimos exceção em mensagem de tela.
+    """
+
+    template_name = "lancar_reserva.html"
+
+    def _reserva_pendente(self, pk: int) -> ReservaViagem:
+        """
+        404 para reserva inexistente **ou já resolvida**.
+
+        O filtro por status no próprio lookup é o que impede o duplo
+        lançamento pela segunda aba: ela não encontra mais a reserva.
+        """
+        return get_object_or_404(
+            ReservaViagem.objects.select_related("funcionario", "veiculo"),
+            pk=pk,
+            status=ReservaViagem.Status.PENDENTE,
+        )
+
+    def get(self, request: HttpRequest, pk: int) -> HttpResponse:
+        reserva = self._reserva_pendente(pk)
+        return render(
+            request,
+            self.template_name,
+            {"reserva": reserva, "form": LancamentoDeReservaForm(reserva=reserva)},
+        )
+
+    def post(self, request: HttpRequest, pk: int) -> HttpResponse:
+        reserva = self._reserva_pendente(pk)
+        form = LancamentoDeReservaForm(request.POST, reserva=reserva)
+
+        if form.is_valid():
+            try:
+                viagem = lancar_viagem_da_reserva(
+                    reserva_pk=reserva.pk,
+                    km_inicial=form.cleaned_data["km_inicial"],
+                    km_final=form.cleaned_data.get("km_final"),
+                    funcionario=form.cleaned_data.get("funcionario"),
+                    usuario=request.user,
+                )
+            except ReservaIndisponivel as erro:
+                # Estado mudou entre o GET e o POST — não é erro de campo.
+                messages.error(request, str(erro))
+                return redirect(f"{reverse('agenda')}?dia={reserva.data:%Y-%m-%d}")
+            except ValidationError as erro:
+                # Regras do modelo (piso, teto, data futura, veículo na rua).
+                _aplicar_erros_do_modelo(form, erro)
+            else:
+                if viagem.em_andamento:
+                    messages.success(
+                        request,
+                        f"Saída registrada: {viagem.funcionario} com "
+                        f"{viagem.veiculo.placa} em KM {viagem.km_inicial}. "
+                        "Registre a chegada quando o veículo retornar.",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f"Viagem de {viagem.funcionario} lançada "
+                        f"({viagem.km_percorrida} km).",
+                    )
+                return redirect(f"{reverse('agenda')}?dia={viagem.data:%Y-%m-%d}")
+
+        return render(request, self.template_name, {"reserva": reserva, "form": form})
+
+
+class RegistrarChegadaView(LoginRequiredMixin, View):
+    """Segunda etapa do Fluxo A: informar o KM de retorno."""
+
+    template_name = "registrar_chegada.html"
+
+    def _viagem_aberta(self, pk: int) -> Viagem:
+        # `km_final__isnull=True` no lookup: viagem já concluída dá 404 em vez
+        # de permitir reescrever a quilometragem.
+        return get_object_or_404(
+            Viagem.objects.select_related("funcionario", "veiculo"),
+            pk=pk,
+            km_final__isnull=True,
+        )
+
+    def get(self, request: HttpRequest, pk: int) -> HttpResponse:
+        viagem = self._viagem_aberta(pk)
+        return render(
+            request,
+            self.template_name,
+            {"viagem": viagem, "form": RegistrarChegadaForm()},
+        )
+
+    def post(self, request: HttpRequest, pk: int) -> HttpResponse:
+        viagem = self._viagem_aberta(pk)
+        form = RegistrarChegadaForm(request.POST)
+
+        if form.is_valid():
+            try:
+                viagem = registrar_chegada(
+                    viagem_pk=viagem.pk, km_final=form.cleaned_data["km_final"]
+                )
+            except ViagemNaoEstaEmAndamento as erro:
+                messages.error(request, str(erro))
+                return redirect(f"{reverse('agenda')}?dia={viagem.data:%Y-%m-%d}")
+            except ValidationError as erro:
+                # Mesma armadilha: um erro de piso cai em `km_inicial`, que
+                # não é campo deste formulário (só o km de chegada é).
+                _aplicar_erros_do_modelo(form, erro)
+            else:
+                messages.success(
+                    request,
+                    f"Chegada registrada: {viagem.km_percorrida} km percorridos "
+                    f"por {viagem.funcionario}.",
+                )
+                return redirect(f"{reverse('agenda')}?dia={viagem.data:%Y-%m-%d}")
+
+        return render(request, self.template_name, {"viagem": viagem, "form": form})
 
 
 class LancarViagemView(LoginRequiredMixin, View):

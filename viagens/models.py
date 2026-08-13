@@ -130,8 +130,14 @@ class Viagem(models.Model):
     data = models.DateField()
 
     km_inicial = models.PositiveIntegerField()
-    km_final = models.PositiveIntegerField()
-    # Campo salvo (calculado no save): km_final - km_inicial.
+    # NULO = viagem em andamento (veículo na rua). O operador registra a saída
+    # com o km inicial e só informa o final no retorno. Ver `em_andamento`.
+    #
+    # ATENÇÃO: viagem em andamento NÃO pode entrar em fechamento — ela ainda
+    # não tem quilometragem. Quem garante isso é `services.viagens_em_aberto`.
+    km_final = models.PositiveIntegerField(null=True, blank=True)
+    # Campo salvo (calculado no save): km_final - km_inicial, ou 0 enquanto a
+    # viagem não foi concluída.
     km_percorrida = models.PositiveIntegerField(default=0, editable=False)
 
     # Snapshot do centro de custo do funcionário no momento do lançamento.
@@ -167,8 +173,13 @@ class Viagem(models.Model):
         db_table = "viagem"
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(km_final__gt=models.F('km_inicial')),
-                name='km_final_gt_km_inicial',
+                # A cláusula `km_final IS NULL` libera a viagem em andamento.
+                # Em SQL ela seria dispensável (NULL > x é UNKNOWN, e UNKNOWN
+                # satisfaz uma CHECK), mas deixar implícito obrigaria quem lê
+                # a conhecer lógica de três valores para entender a regra.
+                condition=models.Q(km_final__isnull=True)
+                | models.Q(km_final__gt=models.F("km_inicial")),
+                name="km_final_gt_km_inicial",
                 violation_error_message="A quilometragem final deve ser maior que a inicial.",
             )
         ]
@@ -180,6 +191,29 @@ class Viagem(models.Model):
     @property
     def fechada(self) -> bool:
         return self.fechamento_id is not None
+
+    # -- Estado da viagem -------------------------------------------------
+    # O estado é DERIVADO de `km_final`, não guardado num campo `status`.
+    # São só dois estados, e a mesma informação em dois lugares acabaria
+    # divergindo (status="concluída" com km_final vazio). Mesma lógica do
+    # `fechada` acima. Em `ReservaViagem` são três estados, e por isso lá o
+    # campo `status` existe de verdade.
+
+    @property
+    def em_andamento(self) -> bool:
+        """Saída registrada, chegada ainda não: o veículo está na rua."""
+        return self.km_final is None
+
+    @property
+    def concluida(self) -> bool:
+        return self.km_final is not None
+
+    @property
+    def status_descricao(self) -> str:
+        """Rótulo para telas e admin — a fonte da verdade continua sendo o km."""
+        if self.em_andamento:
+            return "Em andamento"
+        return "Fechada" if self.fechada else "Concluída"
 
     def clean(self):
         erros = {}
@@ -214,13 +248,29 @@ class Viagem(models.Model):
         if erros:
             raise ValidationError(erros)
 
-    def save(self, *args, **kwargs):
-        # Congela o centro de custo a partir do funcionário se ainda não veio.
+    def congelar_centro_custo(self) -> None:
+        """
+        Copia o centro de custo do funcionário, se ainda não houver um.
+
+        Método próprio (e não só uma linha dentro do `save()`) porque quem
+        monta a viagem fora de um ModelForm precisa chamá-lo **antes** do
+        `full_clean()`: a validação de campo roda primeiro e acusaria
+        `centro_custo` nulo, já que o preenchimento só aconteceria no `save()`.
+        Pelo ModelForm o problema não aparece — `centro_custo` não é campo do
+        formulário e fica fora da validação.
+        """
         if self.centro_custo_id is None and self.funcionario_id is not None:
             self.centro_custo_id = self.funcionario.centro_custo_id
-        # Campo calculado persistido.
+
+    def save(self, *args, **kwargs):
+        self.congelar_centro_custo()
+        # Campo calculado persistido. Enquanto a viagem está em andamento não
+        # há distância conhecida — zero, e não "km_inicial", para que o rateio
+        # jamais some quilômetro que ninguém percorreu.
         if self.km_inicial is not None and self.km_final is not None:
             self.km_percorrida = self.km_final - self.km_inicial
+        else:
+            self.km_percorrida = 0
         super().save(*args, **kwargs)
         from .services import atualizar_km_veiculo
         atualizar_km_veiculo(self.veiculo)

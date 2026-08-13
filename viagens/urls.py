@@ -5,12 +5,24 @@ from .views import (
     FechamentoExportarView,
     FechamentoView,
     HistoricoFechamentosView,
+    LancarReservaView,
     LancarViagemView,
+    RegistrarChegadaView,
 )
 
 urlpatterns = [
     path("agenda/", AgendaView.as_view(), name="agenda"),
     path("lancar/", LancarViagemView.as_view(), name="lancar_viagem"),
+    path(
+        "reservas/<int:pk>/lancar/",
+        LancarReservaView.as_view(),
+        name="lancar_reserva",
+    ),
+    path(
+        "chegada/<int:pk>/",
+        RegistrarChegadaView.as_view(),
+        name="registrar_chegada",
+    ),
     path("fechamento/", FechamentoView.as_view(), name="fechamento"),
     path(
         "fechamentos/",

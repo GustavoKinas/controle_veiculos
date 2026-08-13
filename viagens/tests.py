@@ -38,7 +38,27 @@ from colaboradores.models import CentroCusto, Funcionario
 
 from .forms import LancamentoViagemForm
 from .models import ReservaViagem, Veiculo, Viagem
-from .services import montar_calendario
+from .services import (
+    ReservaIndisponivel,
+    ViagemNaoEstaEmAndamento,
+    calcular_rateio,
+    confirmar_fechamento,
+    lancar_viagem_da_reserva,
+    montar_calendario,
+    registrar_chegada,
+)
+
+
+# Nos testes o Django força DEBUG=False, e aí o
+# CompressedManifestStaticFilesStorage (WhiteNoise) exige o staticfiles.json
+# gerado pelo `collectstatic` — sem ele, renderizar base.html estoura
+# "Missing staticfiles manifest entry". Teste não deve depender de build.
+STORAGES_DE_TESTE = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+    },
+}
 
 
 class BaseViagensTest(TestCase):
@@ -268,21 +288,7 @@ class ConfirmarFechamentoTest(BaseViagensTest):
 # =========================================================================
 # 6. Views (test Client)
 # =========================================================================
-# Nos testes o Django força DEBUG=False, e aí o
-# CompressedManifestStaticFilesStorage (WhiteNoise) exige o staticfiles.json
-# gerado pelo `collectstatic` — sem ele, renderizar base.html estoura
-# "Missing staticfiles manifest entry". Em teste não queremos depender de um
-# passo de build, então trocamos pelo storage simples.
-# `override_settings` na classe vale para todos os métodos dela e é revertido
-# automaticamente ao fim — nunca altere settings "na mão" dentro de um teste.
-@override_settings(
-    STORAGES={
-        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-        "staticfiles": {
-            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
-        },
-    }
-)
+@override_settings(STORAGES=STORAGES_DE_TESTE)
 class ViagensViewsTest(BaseViagensTest):
     def test_post_lanca_viagem_e_registra_lancada_por(self):
         """EXEMPLO IMPLEMENTADO — modelo para os testes de view."""
@@ -397,14 +403,7 @@ class MontarCalendarioTest(BaseViagensTest):
         self.assertEqual(montar_calendario(hoje.year, hoje.month)["total_no_mes"], 0)
 
 
-@override_settings(
-    STORAGES={
-        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-        "staticfiles": {
-            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
-        },
-    }
-)
+@override_settings(STORAGES=STORAGES_DE_TESTE)
 class AgendaViewTest(BaseViagensTest):
     def test_exige_login(self):
         resposta = self.client.get(reverse("agenda"))
@@ -436,6 +435,30 @@ class AgendaViewTest(BaseViagensTest):
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.context["dia_selecionado"], timezone.localdate())
 
+    def test_reserva_futura_nao_oferece_o_botao_de_lancar(self):
+        """
+        Lançar viagem que ainda não aconteceu sempre falharia na validação de
+        data futura — melhor não oferecer a ação. O bloqueio é de tela; quem
+        garante a regra continua sendo o `Viagem.clean()`.
+        """
+        self.client.force_login(self.portaria)
+        amanha = timezone.localdate() + timedelta(days=1)
+        reserva = ReservaViagem.objects.create(veiculo=self.strada, data=amanha)
+
+        resposta = self.client.get(reverse("agenda"), {"dia": amanha.isoformat()})
+
+        self.assertContains(resposta, "Aguardando a data")
+        self.assertNotContains(resposta, reverse("lancar_reserva", args=[reserva.pk]))
+
+    def test_reserva_de_hoje_oferece_o_botao_de_lancar(self):
+        self.client.force_login(self.portaria)
+        hoje = timezone.localdate()
+        reserva = ReservaViagem.objects.create(veiculo=self.strada, data=hoje)
+
+        resposta = self.client.get(reverse("agenda"), {"dia": hoje.isoformat()})
+
+        self.assertContains(resposta, reverse("lancar_reserva", args=[reserva.pk]))
+
     def test_dia_selecionado_filtra_a_fila(self):
         self.client.force_login(self.portaria)
         amanha = timezone.localdate() + timedelta(days=1)
@@ -448,7 +471,321 @@ class AgendaViewTest(BaseViagensTest):
 
 
 # =========================================================================
-# 8. Lacunas conhecidas (caça aos bugs)
+# 8. Fase 3 — lançamento a partir da reserva (fluxos A e B)
+# =========================================================================
+class ViagemEmAndamentoTest(BaseViagensTest):
+    """`km_final` nulo = veículo na rua. O que isso muda no resto do sistema."""
+
+    def test_viagem_sem_km_final_esta_em_andamento_e_nao_soma_km(self):
+        viagem = self.criar_viagem(km_final=None)
+
+        self.assertTrue(viagem.em_andamento)
+        self.assertEqual(viagem.km_percorrida, 0)
+
+    def test_viagem_em_andamento_nao_entra_no_rateio(self):
+        """Prévia do fechamento não pode contar quilômetro que não existe."""
+        hoje = timezone.localdate()
+        self.criar_viagem(data=hoje, km_final=None)
+
+        rateio = calcular_rateio(hoje, hoje)
+
+        self.assertEqual(rateio["quantidade_viagens"], 0)
+        self.assertEqual(rateio["total_km"], 0)
+
+    def test_fechamento_nao_consome_viagem_em_andamento(self):
+        """
+        O teste mais importante desta fase.
+
+        O fechamento é irreversível: se engolisse a viagem aberta, ela seria
+        marcada como fechada com 0 km e os quilômetros reais nunca entrariam
+        em rateio nenhum.
+        """
+        hoje = timezone.localdate()
+        aberta = self.criar_viagem(data=hoje, km_final=None)
+        concluida = self.criar_viagem(
+            data=hoje, km_inicial=100005, km_final=100200, veiculo=self.cronos
+        )
+
+        fechamento = confirmar_fechamento(hoje, hoje, usuario=self.portaria)
+
+        aberta.refresh_from_db()
+        concluida.refresh_from_db()
+        self.assertIsNone(aberta.fechamento_id)          # intocada
+        self.assertEqual(concluida.fechamento_id, fechamento.pk)
+        self.assertEqual(fechamento.total_km, 195)
+
+    def test_previa_informa_quantas_viagens_ficam_de_fora(self):
+        """
+        O operador precisa saber, ANTES de confirmar, que há viagens do
+        período que não entrarão — o fechamento é irreversível.
+        """
+        hoje = timezone.localdate()
+        self.criar_viagem(data=hoje, km_final=None)
+        self.criar_viagem(data=hoje, veiculo=self.cronos, km_inicial=105000, km_final=105100)
+
+        rateio = calcular_rateio(hoje, hoje)
+
+        self.assertEqual(rateio["quantidade_viagens"], 1)
+        self.assertEqual(rateio["quantidade_em_andamento"], 1)
+
+    @override_settings(STORAGES=STORAGES_DE_TESTE)
+    def test_aviso_aparece_no_modal_de_confirmacao(self):
+        hoje = timezone.localdate()
+        self.criar_viagem(data=hoje, km_final=None)
+        self.criar_viagem(data=hoje, veiculo=self.cronos, km_inicial=105000, km_final=105100)
+        self.client.force_login(self.portaria)
+
+        resposta = self.client.get(
+            reverse("fechamento"),
+            {"data_inicio": hoje.isoformat(), "data_fim": hoje.isoformat()},
+        )
+
+        self.assertContains(resposta, "viagem(ns) em andamento neste período")
+
+    def test_hodometro_considera_viagem_aberta(self):
+        """
+        O carro saiu com 107.000 e não voltou: o hodômetro tem que refletir
+        isso, senão a próxima viagem poderia começar abaixo disso.
+        """
+        self.criar_viagem(km_inicial=107000, km_final=None)
+
+        self.strada.refresh_from_db()
+        self.assertEqual(self.strada.km_atual, 107000)
+
+    def test_piso_considera_viagem_aberta(self):
+        self.criar_viagem(data=date(2026, 8, 3), km_inicial=107000, km_final=None)
+
+        viagem = self.nova_viagem(data=date(2026, 8, 4), km_inicial=106000, km_final=106500)
+
+        with self.assertRaises(ValidationError) as ctx:
+            viagem.full_clean()
+        self.assertIn("km_inicial", ctx.exception.message_dict)
+
+
+class LancarReservaServiceTest(BaseViagensTest):
+    def setUp(self):
+        self.reserva = ReservaViagem.objects.create(
+            funcionario=self.funcionario,
+            veiculo=self.strada,
+            data=timezone.localdate(),
+        )
+
+    def test_fluxo_b_lanca_viagem_completa_e_marca_a_reserva(self):
+        viagem = lancar_viagem_da_reserva(
+            reserva_pk=self.reserva.pk,
+            km_inicial=100000,
+            km_final=100150,
+            usuario=self.portaria,
+        )
+
+        self.reserva.refresh_from_db()
+        self.assertEqual(self.reserva.status, ReservaViagem.Status.LANCADA)
+        self.assertEqual(self.reserva.viagem_id, viagem.pk)
+        self.assertTrue(viagem.concluida)
+        self.assertEqual(viagem.km_percorrida, 150)
+        self.assertEqual(viagem.lancada_por, self.portaria)
+
+    def test_fluxo_a_registra_saida_e_depois_chegada(self):
+        viagem = lancar_viagem_da_reserva(
+            reserva_pk=self.reserva.pk, km_inicial=100000, usuario=self.portaria
+        )
+        self.assertTrue(viagem.em_andamento)
+
+        viagem = registrar_chegada(viagem_pk=viagem.pk, km_final=100340)
+
+        self.assertTrue(viagem.concluida)
+        self.assertEqual(viagem.km_percorrida, 340)
+
+    def test_viagem_usa_os_dados_da_reserva_e_nao_os_recebidos(self):
+        """Colaborador e veículo vêm da reserva mesmo se alguém mandar outros."""
+        viagem = lancar_viagem_da_reserva(
+            reserva_pk=self.reserva.pk,
+            km_inicial=100000,
+            km_final=100100,
+            funcionario=self.funcionario_inativo,   # tentativa de sobrescrever
+        )
+
+        self.assertEqual(viagem.funcionario, self.funcionario)
+        self.assertEqual(viagem.veiculo, self.strada)
+        self.assertEqual(viagem.data, self.reserva.data)
+
+    def test_reserva_ja_lancada_nao_gera_segunda_viagem(self):
+        """Regra 1:1 — clique duplo, duas abas, dois operadores."""
+        lancar_viagem_da_reserva(
+            reserva_pk=self.reserva.pk, km_inicial=100000, km_final=100100
+        )
+
+        with self.assertRaises(ReservaIndisponivel):
+            lancar_viagem_da_reserva(
+                reserva_pk=self.reserva.pk, km_inicial=100100, km_final=100200
+            )
+
+        self.assertEqual(Viagem.objects.count(), 1)
+
+    def test_veiculo_ja_na_rua_bloqueia_nova_saida(self):
+        lancar_viagem_da_reserva(reserva_pk=self.reserva.pk, km_inicial=100000)
+        outra = ReservaViagem.objects.create(
+            funcionario=self.funcionario, veiculo=self.strada, data=timezone.localdate()
+        )
+
+        with self.assertRaises(ValidationError):
+            lancar_viagem_da_reserva(reserva_pk=outra.pk, km_inicial=100500)
+
+    def test_reserva_sem_colaborador_exige_que_o_operador_informe(self):
+        sem_colaborador = ReservaViagem.objects.create(
+            solicitante_nome="Tamara Suelen Köpp",
+            veiculo=self.cronos,
+            data=timezone.localdate(),
+        )
+
+        with self.assertRaises(ValidationError):
+            lancar_viagem_da_reserva(reserva_pk=sem_colaborador.pk, km_inicial=105000)
+
+        viagem = lancar_viagem_da_reserva(
+            reserva_pk=sem_colaborador.pk,
+            km_inicial=105000,
+            funcionario=self.funcionario,
+        )
+        self.assertEqual(viagem.funcionario, self.funcionario)
+
+    def test_km_invalido_nao_marca_a_reserva_como_lancada(self):
+        """A transação reverte tudo: sem viagem, sem mudança de status."""
+        with self.assertRaises(ValidationError):
+            lancar_viagem_da_reserva(
+                reserva_pk=self.reserva.pk, km_inicial=100000, km_final=99000
+            )
+
+        self.reserva.refresh_from_db()
+        self.assertEqual(self.reserva.status, ReservaViagem.Status.PENDENTE)
+        self.assertEqual(Viagem.objects.count(), 0)
+
+    def test_chegada_em_viagem_ja_concluida_e_recusada(self):
+        viagem = lancar_viagem_da_reserva(
+            reserva_pk=self.reserva.pk, km_inicial=100000, km_final=100100
+        )
+
+        with self.assertRaises(ViagemNaoEstaEmAndamento):
+            registrar_chegada(viagem_pk=viagem.pk, km_final=100999)
+
+
+@override_settings(STORAGES=STORAGES_DE_TESTE)
+class LancarReservaViewTest(BaseViagensTest):
+    def setUp(self):
+        self.client.force_login(self.portaria)
+        self.reserva = ReservaViagem.objects.create(
+            funcionario=self.funcionario,
+            veiculo=self.strada,
+            data=timezone.localdate(),
+        )
+
+    def test_get_mostra_os_dados_da_reserva_sem_campos_editaveis(self):
+        resposta = self.client.get(reverse("lancar_reserva", args=[self.reserva.pk]))
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertContains(resposta, self.strada.placa)
+        # Colaborador/veículo/data não podem ser inputs — nem hidden. Editar o
+        # HTML não pode permitir lançar viagem em nome de outra pessoa.
+        self.assertNotContains(resposta, 'name="veiculo"')
+        self.assertNotContains(resposta, 'name="data"')
+        self.assertNotContains(resposta, 'name="funcionario"')
+
+    def test_post_completo_cria_a_viagem_e_volta_para_a_agenda(self):
+        resposta = self.client.post(
+            reverse("lancar_reserva", args=[self.reserva.pk]),
+            {"km_inicial": 100000, "km_final": 100150},
+        )
+
+        self.assertEqual(resposta.status_code, 302)
+        self.assertIn(reverse("agenda"), resposta["Location"])
+        self.assertEqual(Viagem.objects.count(), 1)
+
+    def test_post_sem_km_final_deixa_a_viagem_em_andamento(self):
+        self.client.post(
+            reverse("lancar_reserva", args=[self.reserva.pk]), {"km_inicial": 100000}
+        )
+
+        self.assertTrue(Viagem.objects.get().em_andamento)
+
+    def test_reserva_ja_lancada_da_404(self):
+        self.reserva.status = ReservaViagem.Status.LANCADA
+        self.reserva.save(update_fields=["status"])
+
+        resposta = self.client.get(reverse("lancar_reserva", args=[self.reserva.pk]))
+
+        self.assertEqual(resposta.status_code, 404)
+
+    def test_erro_em_campo_inexistente_no_form_vira_erro_geral(self):
+        """
+        Regressão: a data vem da reserva e NÃO é campo do formulário, então o
+        erro de "data futura" não tem onde ser exibido. Antes, o
+        `add_error("data", ...)` estourava ValueError e derrubava a tela com
+        um 500 em vez de mostrar a mensagem ao operador.
+        """
+        reserva_futura = ReservaViagem.objects.create(
+            funcionario=self.funcionario,
+            veiculo=self.cronos,
+            data=timezone.localdate() + timedelta(days=1),
+        )
+
+        resposta = self.client.post(
+            reverse("lancar_reserva", args=[reserva_futura.pk]),
+            {"km_inicial": 105000, "km_final": 105100},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertContains(resposta, "não pode ser maior que a data atual")
+        self.assertEqual(Viagem.objects.count(), 0)
+
+    def test_erro_de_regra_reexibe_o_form_sem_criar_viagem(self):
+        resposta = self.client.post(
+            reverse("lancar_reserva", args=[self.reserva.pk]),
+            {"km_inicial": 10, "km_final": 20},      # abaixo do hodômetro
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(Viagem.objects.count(), 0)
+
+    def test_chegada_conclui_a_viagem(self):
+        self.client.post(
+            reverse("lancar_reserva", args=[self.reserva.pk]), {"km_inicial": 100000}
+        )
+        viagem = Viagem.objects.get()
+
+        resposta = self.client.post(
+            reverse("registrar_chegada", args=[viagem.pk]), {"km_final": 100480}
+        )
+
+        self.assertEqual(resposta.status_code, 302)
+        viagem.refresh_from_db()
+        self.assertEqual(viagem.km_percorrida, 480)
+
+    def test_get_da_chegada_renderiza_com_o_km_de_saida(self):
+        """
+        Também garante que `registrar_chegada.html` é renderizado ao menos uma
+        vez pela suíte — sem isso, um erro de template só apareceria em
+        produção (teste de POST que redireciona não renderiza nada).
+        """
+        self.client.post(
+            reverse("lancar_reserva", args=[self.reserva.pk]), {"km_inicial": 100000}
+        )
+        viagem = Viagem.objects.get()
+
+        resposta = self.client.get(reverse("registrar_chegada", args=[viagem.pk]))
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertContains(resposta, "100000")
+        self.assertContains(resposta, self.strada.placa)
+
+    def test_chegada_em_viagem_concluida_da_404(self):
+        viagem = self.criar_viagem(veiculo=self.cronos, km_inicial=105000, km_final=105100)
+
+        resposta = self.client.get(reverse("registrar_chegada", args=[viagem.pk]))
+
+        self.assertEqual(resposta.status_code, 404)
+
+
+# =========================================================================
+# 9. Lacunas conhecidas (caça aos bugs)
 #
 # `@expectedFailure` = "este teste descreve o comportamento CORRETO, que o
 # código ainda não tem". A suíte segue verde, mas a dívida fica documentada

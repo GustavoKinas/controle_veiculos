@@ -12,9 +12,25 @@ from datetime import date
 
 from django.db import transaction
 from django.db.models import Sum, Max, Min, QuerySet
+from django.db.models.functions import Coalesce
 from django.core.exceptions import ValidationError
 
 from .models import Fechamento, FechamentoRateio, ReservaViagem, Viagem
+
+
+class ReservaIndisponivel(Exception):
+    """
+    A reserva não pode ser lançada: já virou viagem, foi cancelada ou outro
+    operador a pegou primeiro.
+
+    Exceção própria (e não `ValidationError`) para separar "o formulário está
+    errado" de "o estado do sistema mudou debaixo dos seus pés" — são erros
+    diferentes e merecem mensagens diferentes na tela.
+    """
+
+
+class ViagemNaoEstaEmAndamento(Exception):
+    """Tentativa de registrar chegada numa viagem que já foi concluída."""
 
 CEM = Decimal("100")
 DUAS_CASAS = Decimal("0.01")
@@ -41,10 +57,13 @@ def validar_quilometragem(veiculo, data, km_inicial, km_final, viagem_id=None):
     tanto o ModelForm quanto o admin os exibam no lugar certo.
     """
     erros = {}
-    if km_inicial is None or km_final is None:
+    if km_inicial is None:
         return                                              # campo faltando: erro de field já foi acusado
 
-    if km_final <= km_inicial:                              # regra 1
+    # `km_final is None` = viagem em andamento. As regras que dependem do fim
+    # ficam suspensas até a chegada ser registrada; as que dependem só do
+    # início continuam valendo desde a saída.
+    if km_final is not None and km_final <= km_inicial:      # regra 1
         erros.setdefault("km_final", []).append(
             "A quilometragem final deve ser maior que a inicial."
         )
@@ -58,8 +77,13 @@ def validar_quilometragem(veiculo, data, km_inicial, km_final, viagem_id=None):
             viagens_do_veiculo = viagens_do_veiculo.exclude(pk=viagem_id)
 
         # Piso (regra 2): maior KM já registrada para o veículo até esta data.
+        #
+        # Coalesce porque uma viagem em andamento tem km_final NULO e o
+        # MAX() do SQL ignora nulos: sem isso, o carro que saiu com 105.000 e
+        # não voltou não contaria como piso, e a viagem seguinte poderia ser
+        # lançada com quilometragem menor.
         piso_quilometragem = viagens_do_veiculo.filter(data__lte=data).aggregate(
-            km=Max("km_final")
+            km=Max(Coalesce("km_final", "km_inicial"))
         )["km"]
         if piso_quilometragem is None and not viagens_do_veiculo.exists():
             # Veículo ainda sem viagens: o piso é o hodômetro cadastrado. Se já
@@ -78,11 +102,19 @@ def validar_quilometragem(veiculo, data, km_inicial, km_final, viagem_id=None):
         teto_quilometragem = viagens_do_veiculo.filter(data__gt=data).aggregate(
             km=Min("km_inicial")
         )["km"]
-        if teto_quilometragem is not None and km_final > teto_quilometragem:
-            erros.setdefault("km_final", []).append(
-                f"KM final ({km_final}) invade um lançamento posterior "
-                f"(que inicia em {teto_quilometragem})."
-            )
+        if teto_quilometragem is not None:
+            if km_final is not None and km_final > teto_quilometragem:
+                erros.setdefault("km_final", []).append(
+                    f"KM final ({km_final}) invade um lançamento posterior "
+                    f"(que inicia em {teto_quilometragem})."
+                )
+            # Viagem em andamento: o fim é desconhecido, mas o início já não
+            # pode ultrapassar o teto.
+            elif km_final is None and km_inicial > teto_quilometragem:
+                erros.setdefault("km_inicial", []).append(
+                    f"KM inicial ({km_inicial}) invade um lançamento posterior "
+                    f"(que inicia em {teto_quilometragem})."
+                )
 
     if erros:
         raise ValidationError(erros)
@@ -97,7 +129,9 @@ def atualizar_km_veiculo(veiculo):
     """
     if veiculo is None:
         return
-    maior_km = veiculo.viagens.aggregate(km=Max("km_final"))["km"]
+    # Coalesce pelo mesmo motivo do piso: a viagem em andamento não tem
+    # km_final, mas o hodômetro já avançou até o km_inicial dela.
+    maior_km = veiculo.viagens.aggregate(km=Max(Coalesce("km_final", "km_inicial")))["km"]
     if maior_km is None:
         # Sem viagens: preserva o hodômetro informado no cadastro do veículo.
         return
@@ -114,12 +148,14 @@ def reservas_no_periodo(data_inicio: date, data_fim: date) -> QuerySet[ReservaVi
     Reservas visíveis na agenda entre duas datas (limites inclusivos).
 
     Canceladas ficam de fora: são ruído para o operador. O `select_related`
-    evita N+1 — a agenda renderiza funcionário e veículo de cada card.
+    evita N+1 — a agenda renderiza funcionário, veículo e, desde a fase 3, o
+    estado da viagem vinculada (para decidir entre "Lançar KM" e "Registrar
+    chegada") em cada card.
     """
     return (
         ReservaViagem.objects.filter(data__range=(data_inicio, data_fim))
         .exclude(status=ReservaViagem.Status.CANCELADA)
-        .select_related("funcionario", "veiculo")
+        .select_related("funcionario", "veiculo", "viagem")
         .order_by("hora_inicio", "id")
     )
 
@@ -156,19 +192,191 @@ def montar_calendario(ano: int, mes: int) -> dict:
     }
 
 
-def viagens_em_aberto(data_inicio: date, data_fim: date):
-    """Viagens no período que ainda NÃO entraram em nenhum fechamento."""
+def viagem_em_andamento_do_veiculo(veiculo, ignorar_viagem_id=None) -> Viagem | None:
+    """
+    A viagem aberta do veículo, se houver.
+
+    Um carro não pode estar em duas viagens ao mesmo tempo: enquanto não
+    registrarem a chegada, ele não sai de novo.
+    """
+    consulta = Viagem.objects.filter(veiculo=veiculo, km_final__isnull=True)
+    if ignorar_viagem_id is not None:
+        consulta = consulta.exclude(pk=ignorar_viagem_id)
+    return consulta.select_related("funcionario").first()
+
+
+@transaction.atomic
+def lancar_viagem_da_reserva(
+    *,
+    reserva_pk: int,
+    km_inicial: int,
+    km_final: int | None = None,
+    funcionario=None,
+    usuario=None,
+) -> Viagem:
+    """
+    Converte uma reserva PENDENTE em `Viagem` e marca a reserva como LANCADA.
+
+    Atende os dois fluxos da portaria com o mesmo caminho de código:
+
+    - **Fluxo A** (duas etapas): `km_final=None` → viagem em andamento;
+    - **Fluxo B** (retrospectivo): `km_final` informado → viagem concluída.
+
+    Parâmetros por palavra-chave (`*`) de propósito: `km_inicial` e `km_final`
+    são dois inteiros seguidos, e trocá-los de posição numa chamada posicional
+    passaria despercebido.
+
+    `funcionario` só é usado quando a reserva veio do Outlook sem colaborador
+    identificado — nesse caso quem informa é o operador, na tela.
+
+    Levanta `ReservaIndisponivel` se a reserva já foi lançada/cancelada, e
+    `ValidationError` se a quilometragem violar as regras do hodômetro.
+    """
+    # select_for_update trava a linha até o fim da transação: dois operadores
+    # clicando no mesmo card ao mesmo tempo — ou o mesmo operador com duas
+    # abas — não criam duas viagens. O segundo espera e encontra o status já
+    # alterado, caindo no ReservaIndisponivel.
+    # `of=("self",)` trava SÓ a linha da reserva. Sem isso o Postgres recusa a
+    # consulta: `funcionario` é FK opcional, o select_related gera LEFT OUTER
+    # JOIN e "FOR UPDATE não pode ser aplicado ao lado nulável de uma junção
+    # externa". Travar o funcionário também não faria sentido algum.
+    reserva = (
+        ReservaViagem.objects.select_for_update(of=("self",))
+        .select_related("funcionario", "veiculo")
+        .filter(pk=reserva_pk, status=ReservaViagem.Status.PENDENTE)
+        .first()
+    )
+    if reserva is None:
+        raise ReservaIndisponivel(
+            "Esta reserva já foi lançada ou cancelada por outra pessoa."
+        )
+
+    # O colaborador vem SEMPRE da reserva quando ela o tem. O parâmetro só
+    # entra em cena no caso não identificado — nunca para sobrescrever.
+    funcionario_da_viagem = reserva.funcionario or funcionario
+    if funcionario_da_viagem is None:
+        raise ValidationError(
+            {"funcionario": "Informe o colaborador responsável pela viagem."}
+        )
+
+    aberta = viagem_em_andamento_do_veiculo(reserva.veiculo)
+    if aberta is not None:
+        raise ValidationError(
+            {
+                "km_inicial": (
+                    f"{reserva.veiculo} está em viagem desde "
+                    f"{aberta.data:%d/%m/%Y} (KM {aberta.km_inicial}). "
+                    "Registre a chegada antes de lançar uma nova saída."
+                )
+            }
+        )
+
+    if funcionario_da_viagem.centro_custo_id is None:
+        # Sem centro de custo não há para onde ratear o combustível. Melhor
+        # barrar aqui, com nome e sobrenome, do que deixar o full_clean()
+        # devolver um "este campo não pode ser nulo" sobre `centro_custo`.
+        raise ValidationError(
+            {
+                "funcionario": (
+                    f"{funcionario_da_viagem} não tem centro de custo definido. "
+                    "Ajuste o cadastro do colaborador antes de lançar a viagem."
+                )
+            }
+        )
+
+    viagem = Viagem(
+        funcionario=funcionario_da_viagem,
+        veiculo=reserva.veiculo,      # da reserva, jamais do POST
+        data=reserva.data,
+        km_inicial=km_inicial,
+        km_final=km_final,
+        lancada_por=usuario,
+    )
+    viagem.congelar_centro_custo()    # antes do full_clean, ver o método
+    # Sem ModelForm não existe `_post_clean()`, e `save()` não valida:
+    # o full_clean() aqui é o que mantém piso, teto e data futura valendo
+    # também neste caminho.
+    viagem.full_clean()
+    viagem.save()
+
+    reserva.viagem = viagem
+    reserva.status = ReservaViagem.Status.LANCADA
+    reserva.save(update_fields=["viagem", "status", "atualizada_em"])
+
+    return viagem
+
+
+@transaction.atomic
+def registrar_chegada(*, viagem_pk: int, km_final: int) -> Viagem:
+    """
+    Fecha uma viagem em andamento com a quilometragem de chegada (Fluxo A).
+
+    A trava `km_final__isnull=True` no próprio filtro impede que uma viagem já
+    concluída seja alterada por aqui — inclusive numa segunda aba aberta.
+    """
+    viagem = (
+        Viagem.objects.select_for_update(of=("self",))
+        .select_related("veiculo", "funcionario")
+        .filter(pk=viagem_pk, km_final__isnull=True)
+        .first()
+    )
+    if viagem is None:
+        raise ViagemNaoEstaEmAndamento(
+            "Esta viagem já foi concluída ou não existe."
+        )
+
+    viagem.km_final = km_final
+    viagem.full_clean()
+    viagem.save()      # recalcula km_percorrida e o hodômetro do veículo
+    return viagem
+
+
+def viagens_em_aberto(data_inicio: date, data_fim: date) -> QuerySet[Viagem]:
+    """
+    Viagens do período elegíveis para fechamento.
+
+    Dois filtros, e o segundo é crítico:
+
+    - `fechamento__isnull=True` — ainda não entrou em nenhum fechamento;
+    - `km_final__isnull=False` — **viagem em andamento fica de fora**. Ela
+      ainda não tem quilometragem, e o fechamento é irreversível: se fosse
+      consumida agora, seria marcada como fechada com 0 km e os quilômetros
+      reais nunca entrariam em rateio nenhum.
+
+    Esta é a única definição de "viagem fechável" no sistema. `calcular_rateio`
+    e `confirmar_fechamento` usam esta função justamente para que a prévia e a
+    confirmação nunca divirjam.
+    """
     return Viagem.objects.filter(
         fechamento__isnull=True,
+        km_final__isnull=False,
         data__gte=data_inicio,
         data__lte=data_fim,
     )
 
 
+def contar_viagens_em_andamento(data_inicio: date, data_fim: date) -> int:
+    """
+    Viagens do período que ainda estão na rua (sem `km_final`).
+
+    Elas ficam de fora do fechamento por construção — ver `viagens_em_aberto`.
+    O número existe para **avisar o operador antes de confirmar**: fechar o
+    período agora deixa essas viagens sem fechamento nenhum, e a ação é
+    irreversível.
+    """
+    return Viagem.objects.filter(
+        fechamento__isnull=True,
+        km_final__isnull=True,
+        data__gte=data_inicio,
+        data__lte=data_fim,
+    ).count()
+
+
 def calcular_rateio(data_inicio: date, data_fim: date) -> dict:
     """
     Prévia (somente leitura) do rateio do período: total de km, quantidade de
-    viagens e a soma/percentual por Centro de Custo.
+    viagens, a soma/percentual por Centro de Custo e quantas viagens do
+    período ficarão de fora por ainda estarem em andamento.
     """
     viagens = viagens_em_aberto(data_inicio, data_fim)
 
@@ -198,6 +406,7 @@ def calcular_rateio(data_inicio: date, data_fim: date) -> dict:
     return {
         "total_km": total_km,
         "quantidade_viagens": viagens.count(),
+        "quantidade_em_andamento": contar_viagens_em_andamento(data_inicio, data_fim),
         "linhas": linhas,
     }
 
@@ -214,10 +423,10 @@ def confirmar_fechamento(data_inicio: date, data_fim: date, usuario=None):
 
     Retorna o Fechamento criado, ou None se não havia viagens em aberto.
     """
-    viagens = list(
-        Viagem.objects.select_for_update()
-        .filter(fechamento__isnull=True, data__gte=data_inicio, data__lte=data_fim)
-    )
+    # Reutiliza `viagens_em_aberto` em vez de repetir o filtro: antes, a mesma
+    # regra estava escrita em dois lugares, e bastava alterar um deles para a
+    # prévia mostrar um conjunto e o fechamento consumir outro.
+    viagens = list(viagens_em_aberto(data_inicio, data_fim).select_for_update())
 
     if not viagens:
         return None

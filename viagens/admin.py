@@ -19,10 +19,12 @@ class ViagemAdmin(admin.ModelAdmin):
         "km_inicial",
         "km_final",
         "km_percorrida",
+        "status_descricao",
         "fechamento",
         "veiculo"
     )
-    list_filter = ("fechamento", "centro_custo", "data")
+    # `km_final__isnull` filtra as viagens em andamento (veículos na rua).
+    list_filter = ("fechamento", "centro_custo", "data", "km_final")
     search_fields = ("funcionario__nome", "funcionario__username")
     date_hierarchy = "data"
     readonly_fields = ("km_percorrida", "centro_custo", "criada_em", "lancada_por")

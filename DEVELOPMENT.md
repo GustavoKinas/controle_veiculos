@@ -178,6 +178,8 @@ controle_veiculos/                 # raiz (contém manage.py)
 ├── .env.example                   # (NOVO) modelo de variáveis de ambiente
 ├── DEVELOPMENT.md                 # (NOVO) este documento
 ├── ESTUDO.md                      # (NOVO) roteiro de estudo do backend
+├── docs/
+│   └── PRE_CADASTRO_VIAGENS.md    # (NOVO) desenho da agenda/pré-cadastro (proposta)
 ├── requirements.txt               # (corrigido)
 ├── docker-compose.yml             # (corrigido)
 ├── controle_veiculos/            # pacote de configuração (renomeado de controle_viagens)
@@ -221,11 +223,20 @@ controle_veiculos/                 # raiz (contém manage.py)
 - **Funcionario** (`AbstractUser`): + `nome`, `unidade_fabril?`, `centro_custo?`,
   `ativo`.
 - **Veiculo**: `placa` (única), `modelo`, `marca`, `km_atual` (hodômetro,
-  recalculado a partir das viagens), `ativo`.
-- **Viagem**: `funcionario`, `veiculo`, `data`, `km_inicial`, `km_final`,
+  recalculado a partir das viagens), `ativo`, `email_recurso?` (caixa de
+  recurso no Outlook; única entre as preenchidas).
+- **ReservaViagem**: pré-cadastro vindo do Outlook — `funcionario?`,
+  `solicitante_nome`, `veiculo`, `data`, `hora_inicio?`, `hora_fim?`,
+  `destino`, `origem`, `id_externo`, `status` (pendente/lançada/cancelada),
+  `viagem?` (1‑para‑1). Ver
+  [docs/PRE_CADASTRO_VIAGENS.md](docs/PRE_CADASTRO_VIAGENS.md).
+- **Viagem**: `funcionario`, `veiculo`, `data`, `km_inicial`, `km_final?`,
   `km_percorrida` (calculado no save), `centro_custo` (congelado),
-  `fechamento?`, `lancada_por?`, `criada_em`. Propriedade `fechada`.
-  `CheckConstraint` de `km_final > km_inicial`.
+  `fechamento?`, `lancada_por?`, `criada_em`. Propriedades `fechada`,
+  `em_andamento`, `concluida`, `status_descricao`.
+  `CheckConstraint`: `km_final IS NULL OR km_final > km_inicial`.
+  **`km_final` nulo = viagem em andamento** (veículo na rua) e **não entra em
+  fechamento** — ver `services.viagens_em_aberto`.
 - **Fechamento**: `data_inicio`, `data_fim`, `total_km`, `criado_por?`,
   `criado_em`.
 - **FechamentoRateio**: `fechamento`, `centro_custo`, `km_percorrida`,
@@ -239,7 +250,10 @@ controle_veiculos/                 # raiz (contém manage.py)
 |---|---|---|
 | `/` | — | Redireciona para `lancar_viagem` |
 | `/login/` `/logout/` | `login`/`logout` | Autenticação (views nativas do Django) |
+| `/viagens/agenda/` | `agenda` | Agenda de pré-cadastros: fila do dia + grade do mês (`?dia=`, `?ano=&mes=`) |
 | `/viagens/lancar/` | `lancar_viagem` | Lançar viagem + últimas 15 (com busca de colaborador por nome) |
+| `/viagens/reservas/<id>/lancar/` | `lancar_reserva` | Converte uma reserva em viagem (KM inicial obrigatório, final opcional) |
+| `/viagens/chegada/<id>/` | `registrar_chegada` | Conclui uma viagem em andamento com o KM de retorno |
 | `/viagens/fechamento/` | `fechamento` | Filtro de período → prévia do rateio → confirmar → link de exportação |
 | `/viagens/fechamentos/` | `historico_fechamentos` | Fechamentos já realizados, cada um com botão de exportação |
 | `/viagens/fechamentos/<id>/exportar/` | `fechamento_exportar` | Download do .xlsx de um fechamento |
@@ -309,6 +323,12 @@ Validado nesta implementação (com SQLite apenas para teste; produção é Post
 ---
 
 ## 9. Próximos passos sugeridos
+
+- **Pré-cadastro de viagens (agenda)** — desenho técnico aprovado e ainda não
+  implementado em [docs/PRE_CADASTRO_VIAGENS.md](docs/PRE_CADASTRO_VIAGENS.md):
+  novo modelo `ReservaViagem`, tela de calendário e conclusão do lançamento só
+  com a quilometragem. Prepara a integração futura com o Outlook (Microsoft
+  Graph), hoje simulada com dados mockados.
 
 - Login individual por colaborador (a base já suporta: `Funcionario` é o user).
 - Valor do combustível/custo por km no fechamento, para gerar o rateio em R$
