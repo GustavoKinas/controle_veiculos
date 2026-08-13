@@ -28,18 +28,32 @@ def gerar_username(nome: str) -> str:
 class CadastroFuncionario(forms.ModelForm):
     class Meta:
         model = Funcionario
-        fields = ["nome", "unidade_fabril", "centro_custo"]
+        fields = ["nome", "email", "unidade_fabril", "centro_custo"]
 
         widgets = {
             "nome": forms.TextInput(attrs={"class": "input input-bordered w-full"}),
+            "email": forms.EmailInput(
+                attrs={
+                    "class": "input input-bordered w-full",
+                    "placeholder": "nome.sobrenome@grupoflexivel.com.br",
+                }
+            ),
             "unidade_fabril": forms.Select(attrs={"class": "select select-bordered w-full"}),
             "centro_custo": forms.Select(attrs={"class": "select select-bordered w-full"}),
         }
 
         labels = {
             "nome": "Nome do Colaborador",
+            "email": "E-mail corporativo",
             "unidade_fabril": "Unidade Fabril",
             "centro_custo": "Centro de Custo",
+        }
+
+        help_texts = {
+            # É a chave que liga o colaborador ao organizador do evento no
+            # Outlook. Sem ele, a reserva importada fica sem colaborador
+            # identificado e o operador precisa escolher na hora de lançar.
+            "email": "Usado para identificar o colaborador nas reservas vindas do Outlook.",
         }
 
     def __init__(self, *args, **kwargs):

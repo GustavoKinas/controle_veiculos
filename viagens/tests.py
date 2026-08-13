@@ -470,6 +470,30 @@ class AgendaViewTest(BaseViagensTest):
         self.assertEqual(len(resposta.context["reservas_do_dia"]), 1)
 
 
+class FuncionarioEmailTest(TestCase):
+    """O `email` é a chave de junção — precisa ser normalizado e único."""
+
+    def test_email_e_normalizado_em_minusculo_no_save(self):
+        funcionario = Funcionario.objects.create(
+            username="sara", nome="SARA", email="  Sara.Bruch@GrupoFlexivel.com.BR "
+        )
+
+        self.assertEqual(funcionario.email, "sara.bruch@grupoflexivel.com.br")
+
+    def test_email_repetido_e_recusado(self):
+        Funcionario.objects.create(username="a", nome="A", email="x@empresa.com")
+
+        with self.assertRaises(IntegrityError):
+            Funcionario.objects.create(username="b", nome="B", email="X@Empresa.com")
+
+    def test_varios_colaboradores_podem_ficar_sem_email(self):
+        """A constraint é parcial: hoje a maioria do cadastro não tem e-mail."""
+        for i in range(3):
+            Funcionario.objects.create(username=f"sem{i}", nome=f"SEM {i}")
+
+        self.assertEqual(Funcionario.objects.filter(email="").count(), 3)
+
+
 # =========================================================================
 # 8. Fase 3 — lançamento a partir da reserva (fluxos A e B)
 # =========================================================================

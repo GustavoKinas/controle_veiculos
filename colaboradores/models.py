@@ -92,6 +92,18 @@ class Funcionario(AbstractUser):
         verbose_name_plural = "Funcionários"
         ordering = ["nome"]
         db_table = "funcionarios"
+        constraints = [
+            # `email` (herdado do AbstractUser) é a chave de junção com o
+            # Outlook: o sync casa o organizador do evento com o cadastro por
+            # este campo. Dois colaboradores com o mesmo e-mail fariam uma
+            # reserva sumir silenciosamente do mapa em memória.
+            # Parcial porque a maioria dos cadastros ainda está sem e-mail.
+            models.UniqueConstraint(
+                fields=["email"],
+                condition=~models.Q(email=""),
+                name="uniq_funcionario_por_email",
+            )
+        ]
 
     def __str__(self):
         return self.nome or self.username
@@ -101,4 +113,9 @@ class Funcionario(AbstractUser):
         # apenas com username (ex.: portaria via createsuperuser).
         if not self.nome:
             self.nome = self.get_full_name() or self.username
+        # Normaliza a chave de junção. O Graph devolve o e-mail com a grafia
+        # do Active Directory ("Jacson.Maia@..." hoje, "jacson.maia@..."
+        # amanhã) e o `IN` do Postgres é case-sensitive: sem isto o sync não
+        # casaria ninguém, e sem erro nenhum.
+        self.email = (self.email or "").strip().lower()
         super().save(*args, **kwargs)
