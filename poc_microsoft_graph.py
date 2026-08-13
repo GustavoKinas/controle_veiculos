@@ -1,7 +1,8 @@
 import requests
 import os
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 load_dotenv()
 
@@ -17,10 +18,40 @@ SALAS = ["autenticidade@grupoflexivel.com.br",
         "produtividade@grupoflexivel.com.br",
         "integracao@grupoflexivel.com.br",
         "eficiencia@grupoflexivel.com.br",
-        "inovacao@grupoflexivel.com.br"
+        "inovacao@grupoflexivel.com.br",
+        "cronossxk9g85@puflexivel.com.br",
+        "cronossxb9b09@puflexivel.com.br",
+        "stradarln1j19@puflexivel.com.br"
         ]
 
 EMAIL_AUTOMACAO='automacao@grupoflexivel.com.br'
+
+FUSO = ZoneInfo("America/Sao_Paulo")
+
+
+def janela_de_consulta(dias: int = 1) -> tuple[str, str]:
+    """
+    Janela [hoje 00:00, hoje+dias 00:00) em horário de São Paulo, no formato
+    ISO 8601 com offset — que é como o Graph espera receber start/endDateTime.
+
+    Duas decisões que parecem detalhe e não são:
+
+    - **Calculada na chamada**, nunca guardada no `__init__` nem no import. Um
+      processo de longa duração (o scheduler, que roda em laço) atravessa a
+      virada do dia; um valor congelado passaria a consultar ontem para
+      sempre, sem erro e sem log.
+    - **`datetime.now(FUSO)` e não `date.today()`.** O segundo usa o relógio
+      do sistema: num container em UTC, das 21h de Brasília em diante ele já
+      virou o dia seguinte, e as reservas de hoje sumiriam da janela.
+
+    O offset sai do `zoneinfo`, não de um literal "-03:00" — hoje os dois
+    coincidem (o Brasil não tem horário de verão desde 2019), mas a constante
+    sobreviveria à premissa que a justifica.
+    """
+    hoje = datetime.now(FUSO).date()
+    inicio = datetime.combine(hoje, time.min, tzinfo=FUSO)
+    return inicio.isoformat(), (inicio + timedelta(days=dias)).isoformat()
+
 
 class MicrosoftGraphClient:
 
@@ -120,6 +151,7 @@ class MicrosoftGraphClient:
                 "end,"
                 "organizer,"
                 "isCancelled,"
+                "isAllDay,"
                 "iCalUId"
             ),
         }
@@ -169,6 +201,34 @@ def horario_do_evento(bloco: dict | None) -> datetime | None:
     return datetime.fromisoformat(valor).replace(second=0, microsecond=0)
 
 
+def descreve_periodo(evento: dict) -> str:
+    """
+    Texto do período de um evento, tratando o caso de dia inteiro.
+
+    O `end` de um evento de dia inteiro é **exclusivo**: um bloqueio de um
+    único dia vem como 13/08 00:00 → 14/08 00:00. Exibir isso cru sugere que
+    o carro só volta na madrugada seguinte, então recuamos um dia para mostrar
+    o último dia efetivamente ocupado.
+
+    Para alimentar `ReservaViagem`, um evento de dia inteiro deve gravar
+    `hora_inicio`/`hora_fim` nulos (o modelo já os aceita) em vez de 00:00 —
+    "sem horário definido" e "sai à meia-noite" são coisas diferentes.
+    """
+    inicio = horario_do_evento(evento.get("start"))
+    fim = horario_do_evento(evento.get("end"))
+
+    if inicio is None or fim is None:
+        return "não informado"
+
+    if not evento.get("isAllDay"):
+        return f"{inicio:%d/%m/%Y %H:%M} até {fim:%d/%m/%Y %H:%M}"
+
+    ultimo_dia = (fim - timedelta(days=1)).date()
+    if ultimo_dia <= inicio.date():
+        return f"Dia inteiro — {inicio:%d/%m/%Y}"
+    return f"Dia inteiro — {inicio:%d/%m/%Y} a {ultimo_dia:%d/%m/%Y}"
+
+
 def formata_retorno_json(json):
     for sala in json:
         nome = sala["scheduleId"]
@@ -193,12 +253,17 @@ def formata_retorno_json(json):
 
 graph = MicrosoftGraphClient()
 
+# A janela é calculada aqui, no ponto de uso — e `dias` já é o parâmetro que
+# a fase 4 vai subir para 30.
+inicio_janela, fim_janela = janela_de_consulta(dias=1)
+print(f"Janela consultada: {inicio_janela} a {fim_janela}")
+
 for sala in SALAS:
 
     agenda = graph.get_room_reservations(
         sala,
-        start_datetime="2026-08-12T00:00:00-03:00",
-        end_datetime="2026-08-13T00:00:00-03:00",
+        start_datetime=inicio_janela,
+        end_datetime=fim_janela,
     )
 
     print()
@@ -227,8 +292,7 @@ for sala in SALAS:
         print(f"Assunto: {evento.get('subject')}")
         print(f"Organizador: {nome}")
         print(f"E-mail: {email}")
-        print(f"Início: {inicio:%d/%m/%Y %H:%M}" if inicio else "Início: não informado")
-        print(f"Fim: {fim:%d/%m/%Y %H:%M}" if fim else "Fim: não informado")
+        print(f"Período: {descreve_periodo(evento)}")
         print(f"  (objetos: {inicio!r} ate {fim!r})")
         print(f"Event ID: {evento.get('id')}")
         print("-" * 80)
