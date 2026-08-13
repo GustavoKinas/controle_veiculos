@@ -324,6 +324,10 @@ class ReservaViagem(models.Model):
     # Texto cru vindo do assunto do evento, preservado mesmo quando o
     # `funcionario` foi identificado: é o rastro da origem.
     solicitante_nome = models.CharField(max_length=200, blank=True, default="")
+    # E-mail do organizador no Outlook, guardado mesmo quando o casamento com
+    # o cadastro falha — é a chave confiável, e sem ela uma reserva não
+    # identificada só teria um nome em texto livre para reconciliar depois.
+    solicitante_email = models.EmailField(blank=True, default="")
 
     veiculo = models.ForeignKey(
         Veiculo,
