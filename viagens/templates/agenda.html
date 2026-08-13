@@ -47,7 +47,9 @@
                     </p>
                   </div>
 
-                  {% if reserva.status == 'lancada' %}
+                  {% if reserva.viagem.em_andamento %}
+                    <span class="badge badge-warning badge-sm shrink-0">Na rua</span>
+                  {% elif reserva.status == 'lancada' %}
                     <span class="badge badge-ghost badge-sm shrink-0">Lançada</span>
                   {% elif reserva.atrasada %}
                     <span class="badge badge-error badge-sm shrink-0 text-white">Atrasada</span>
@@ -57,13 +59,33 @@
                 </div>
 
                 {% if reserva.pendente %}
+                  {% if reserva.data > hoje %}
+                    {% comment %}
+                      A viagem ainda não aconteceu: `Viagem.clean()` recusaria
+                      o lançamento por data futura. Botão bloqueado para não
+                      oferecer uma ação que sempre falharia.
+
+                      Isto é conveniência de tela, não controle de acesso — a
+                      URL continua respondendo e o servidor continua validando.
+                    {% endcomment %}
+                    <button class="btn btn-sm mt-3 w-full" disabled
+                            title="Disponível a partir de {{ reserva.data|date:'d/m/Y' }}">
+                      Aguardando a data
+                    </button>
+                  {% else %}
+                    <a class="btn btn-primary btn-sm mt-3 w-full"
+                       href="{% url 'lancar_reserva' reserva.pk %}">Lançar KM</a>
+                  {% endif %}
+
+                {% elif reserva.viagem.em_andamento %}
                   {% comment %}
-                    Fase 3 troca este botão por um link para `lancar_reserva`.
-                    Desabilitado em vez de omitido: comunica a intenção da tela
-                    sem prometer uma rota que ainda não existe.
+                    Fluxo A, segunda etapa: o veículo saiu e ainda não voltou.
                   {% endcomment %}
-                  <button class="btn btn-primary btn-sm mt-3 w-full" disabled
-                          title="Disponível na próxima fase">Lançar KM</button>
+                  <a class="btn btn-warning btn-sm mt-3 w-full"
+                     href="{% url 'registrar_chegada' reserva.viagem.pk %}">
+                    Registrar chegada
+                  </a>
+
                 {% elif reserva.viagem_id %}
                   <p class="mt-2 text-xs text-base-content/60">
                     {{ reserva.viagem.km_percorrida }} km lançados

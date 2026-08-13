@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block title %}Registrar chegada — Controle de Veículos{% endblock %}
+
+{% block page_badge %}
+  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
+{% endblock %}
+{% block page_title %}Registrar chegada{% endblock %}
+{% block page_subtitle %}
+  Informe a quilometragem do painel no retorno para concluir a viagem.
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-xl">
+  <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
+    <div class="card-body">
+
+      <div class="rounded-box bg-base-200/60 p-4">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p class="text-xs uppercase text-base-content/60">Colaborador</p>
+            <p class="font-semibold">{{ viagem.funcionario }}</p>
+          </div>
+          <div>
+            <p class="text-xs uppercase text-base-content/60">Veículo</p>
+            <p class="font-semibold">{{ viagem.veiculo.placa }} · {{ viagem.veiculo.modelo }}</p>
+          </div>
+          <div>
+            <p class="text-xs uppercase text-base-content/60">Saída em</p>
+            <p class="font-semibold">{{ viagem.data|date:"d/m/Y" }}</p>
+          </div>
+          <div>
+            <p class="text-xs uppercase text-base-content/60">KM na saída</p>
+            <p class="font-mono text-lg font-bold">{{ viagem.km_inicial }}</p>
+          </div>
+        </div>
+      </div>
+
+      <form method="post" class="mt-4 space-y-4">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="alert alert-error">
+            <span>{{ form.non_field_errors|join:" " }}</span>
+          </div>
+        {% endif %}
+
+        <div class="form-control">
+          <label class="label" for="{{ form.km_final.id_for_label }}">
+            <span class="label-text">{{ form.km_final.label }}</span>
+          </label>
+          {{ form.km_final }}
+          {% for erro in form.km_final.errors %}
+            <span class="mt-1 text-sm text-error">{{ erro }}</span>
+          {% endfor %}
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button type="submit" class="btn btn-primary">Concluir viagem</button>
+          <a class="btn btn-ghost" href="{% url 'agenda' %}?dia={{ viagem.data|date:'Y-m-d' }}">Cancelar</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

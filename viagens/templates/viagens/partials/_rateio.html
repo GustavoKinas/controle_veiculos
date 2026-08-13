@@ -71,6 +71,22 @@ Renderizado tanto no carregamento inicial quanto nas atualizações assíncronas
                 ({{ rateio.total_km }} km) serão marcadas como fechadas e não entrarão em
                 fechamentos futuros. Esta ação não pode ser desfeita.
               </p>
+
+              {% comment %}
+                Viagem em andamento não entra no fechamento (não tem km ainda).
+                Como o fechamento é irreversível, o operador precisa saber
+                disso ANTES de confirmar — pode ser que o certo seja esperar o
+                veículo voltar.
+              {% endcomment %}
+              {% if rateio.quantidade_em_andamento %}
+                <div role="alert" class="alert alert-warning">
+                  <span>
+                    Há <strong>{{ rateio.quantidade_em_andamento }}</strong>
+                    viagem(ns) em andamento neste período, tem certeza que
+                    gostaria de realizar o fechamento?
+                  </span>
+                </div>
+              {% endif %}
               <div class="modal-action">
                 <form method="dialog"><button class="btn btn-ghost">Cancelar</button></form>
                 <form method="post" action="{% url 'fechamento' %}">

@@ -114,9 +114,15 @@
                       <span class="text-base-content/60">· {{ viagem.veiculo.modelo }}</span>
                     </td>
                     <td class="whitespace-nowrap">{{ viagem.centro_custo.codigo }}</td>
-                    <td class="text-right font-semibold tabular-nums">{{ viagem.km_percorrida }}</td>
+                    <td class="text-right font-semibold tabular-nums">
+                      {% if viagem.em_andamento %}—{% else %}{{ viagem.km_percorrida }}{% endif %}
+                    </td>
                     <td>
-                      {% if viagem.fechada %}
+                      {% if viagem.em_andamento %}
+                        {% comment %} Fluxo A: saída lançada, aguardando o retorno. {% endcomment %}
+                        <a class="badge badge-warning badge-sm"
+                           href="{% url 'registrar_chegada' viagem.pk %}">Registrar chegada</a>
+                      {% elif viagem.fechada %}
                         <span class="badge badge-ghost badge-sm">Fechada</span>
                       {% else %}
                         <span class="badge badge-success badge-sm text-success-content">Em aberto</span>
