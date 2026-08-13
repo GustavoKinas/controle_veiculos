@@ -177,9 +177,6 @@ python manage.py cadastro_funcionarios colaboradores/management/commands/funcion
 python manage.py cadastrar_veiculos_salas          # andaime — só se precisar revalidar com as salas
 python manage.py sincronizar_reservas --dry-run
 python manage.py sincronizar_reservas --dias 30
-
-# Dados fictícios (sem tocar a API)
-python manage.py criar_reservas_mock --dias 14
 ```
 
 Credenciais do Graph vêm do `.env`: `CLIENT_ID`, `SECRETY_VALUE` (sic),

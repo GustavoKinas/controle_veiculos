@@ -595,16 +595,14 @@ viagens/urls.py                                      /viagens/agenda/  (name="ag
 viagens/templates/agenda.html                        fila do dia + panorama
 viagens/templates/viagens/partials/_calendario.html  grade mensal (htmx)
 viagens/admin.py                                     ReservaViagemAdmin
-viagens/management/commands/criar_reservas_mock.py   dados fictícios idempotentes
 viagens/tests.py                                     12 testes das fases 1 e 2
 ```
 
-Para popular o ambiente local:
-
-```powershell
-python manage.py criar_reservas_mock --dias 14      # rodar duas vezes não duplica
-python manage.py criar_reservas_mock --limpar
-```
+Para popular o ambiente local, importe as reservas de verdade do Outlook
+(fase 4): `python manage.py sincronizar_reservas --dias 30`. O comando
+`criar_reservas_mock`, que gerava reservas fictícias enquanto a integração
+não existia, foi removido — ele imitava o formato do `getSchedule`, que
+acabou descartado, e nunca gravava `solicitante_email`.
 
 ### Testes a escrever (fase 3, antes do código)
 
