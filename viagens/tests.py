@@ -25,7 +25,7 @@ formulários (via `_post_clean`) e pelo admin, nunca pelo ORM puro. Por isso:
 Referências: `viagens/services.py`, `viagens/models.py`, `viagens/forms.py`.
 """
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from unittest import expectedFailure
 
 from django.core.exceptions import ValidationError
@@ -37,6 +37,7 @@ from django.utils import timezone
 from colaboradores.models import CentroCusto, Funcionario
 
 from .forms import LancamentoViagemForm
+from .integracoes.microsoft_graph import normalizar_evento
 from .models import ReservaViagem, Veiculo, Viagem
 from .services import (
     ReservaIndisponivel,
@@ -468,6 +469,80 @@ class AgendaViewTest(BaseViagensTest):
 
         self.assertEqual(resposta.context["dia_selecionado"], amanha)
         self.assertEqual(len(resposta.context["reservas_do_dia"]), 1)
+
+
+# =========================================================================
+# 7.1 Sincronização com o Outlook (fase 4)
+#
+# Nenhum teste aqui toca a rede: a borda (`integracoes.microsoft_graph`) já
+# traduziu o evento para o formato normalizado, e é esse dicionário que o
+# serviço recebe. Testar o tradutor e o gravador separadamente é o que torna
+# a integração testável sem mock de HTTP.
+# =========================================================================
+class NormalizarEventoTest(TestCase):
+    """Tradução do evento cru do Graph para o formato do sync."""
+
+    def evento(self, **kwargs) -> dict:
+        bruto = {
+            "id": "AAMkAG-123",
+            "subject": "Jacson Roberto de Maia ",
+            "isAllDay": False,
+            "isCancelled": False,
+            "start": {"dateTime": "2026-08-13T11:00:00.0000000"},
+            "end": {"dateTime": "2026-08-13T12:00:00.0000000"},
+            "organizer": {
+                "emailAddress": {
+                    "name": "Jacson Roberto de Maia",
+                    "address": "Jacson.Maia@GrupoFlexivel.com.br",
+                }
+            },
+        }
+        bruto.update(kwargs)
+        return bruto
+
+    def test_normaliza_campos_e_baixa_a_caixa_dos_emails(self):
+        """
+        E-mails vão para minúsculo dos dois lados da junção — o `IN` do
+        Postgres é case-sensitive e o AD devolve a grafia que quiser.
+        """
+        dados = normalizar_evento(self.evento(), "Autenticidade@GrupoFlexivel.com.BR")
+
+        self.assertEqual(dados["id_externo"], "AAMkAG-123")
+        self.assertEqual(dados["email_recurso"], "autenticidade@grupoflexivel.com.br")
+        self.assertEqual(dados["solicitante_email"], "jacson.maia@grupoflexivel.com.br")
+        self.assertEqual(dados["data"], date(2026, 8, 13))
+        self.assertEqual(dados["hora_inicio"], time(11, 0))
+        self.assertEqual(dados["hora_fim"], time(12, 0))
+        self.assertFalse(dados["cancelado"])
+
+    def test_remove_espaco_sobrando_do_nome(self):
+        """Todo assunto vindo da API real tem espaço no fim."""
+        dados = normalizar_evento(self.evento(organizer={}), "sala@x.com")
+
+        self.assertEqual(dados["solicitante_nome"], "Jacson Roberto de Maia")
+
+    def test_dia_inteiro_grava_horario_nulo(self):
+        """
+        `hora_inicio=None` e não `00:00`: "sem horário definido" e "sai à
+        meia-noite" são coisas diferentes na agenda do operador.
+        """
+        dados = normalizar_evento(
+            self.evento(
+                isAllDay=True,
+                start={"dateTime": "2026-08-13T00:00:00.0000000"},
+                end={"dateTime": "2026-08-14T00:00:00.0000000"},
+            ),
+            "sala@x.com",
+        )
+
+        self.assertEqual(dados["data"], date(2026, 8, 13))
+        self.assertIsNone(dados["hora_inicio"])
+        self.assertIsNone(dados["hora_fim"])
+
+    def test_evento_sem_id_ou_sem_data_e_descartado(self):
+        """Um evento inaproveitável não pode derrubar o lote inteiro."""
+        self.assertIsNone(normalizar_evento(self.evento(id=None), "sala@x.com"))
+        self.assertIsNone(normalizar_evento(self.evento(start=None), "sala@x.com"))
 
 
 class FuncionarioEmailTest(TestCase):
