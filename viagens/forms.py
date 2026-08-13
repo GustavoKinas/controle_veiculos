@@ -2,7 +2,7 @@ from django import forms
 
 from colaboradores.models import Funcionario
 
-from .models import Viagem, Veiculo
+from .models import ReservaViagem, Viagem, Veiculo
 
 
 class LancamentoViagemForm(forms.ModelForm):
@@ -63,6 +63,101 @@ class LancamentoViagemForm(forms.ModelForm):
     # A validação de quilometragem vive em Viagem.clean() e é executada pelo
     # _post_clean() do ModelForm — assim vale também para o admin e para
     # qualquer full_clean(). Os erros já vêm endereçados a km_inicial/km_final.
+
+
+class ReservaManualForm(forms.ModelForm):
+    """
+    Cadastro de reserva direto no painel, sem passar pelo Outlook.
+
+    Existe porque nem toda reserva nasce numa agenda: alguém liga para a
+    portaria, o carro é pedido na hora, ou a caixa de recurso está fora do ar.
+    O campo `origem` fica em `MANUAL` (o padrão do modelo) e `id_externo`
+    segue vazio — é isso que impede o sync de tratar esta reserva como um
+    evento que "sumiu do Outlook" e cancelá-la na rodada seguinte.
+
+    `funcionario` é obrigatório aqui, ao contrário do modelo: quem cadastra na
+    mão sabe para quem é. O campo é opcional no banco por causa do Outlook,
+    que às vezes não permite identificar o solicitante.
+    """
+
+    class Meta:
+        model = ReservaViagem
+        fields = ["funcionario", "veiculo", "data", "hora_inicio", "hora_fim", "destino"]
+        widgets = {
+            "funcionario": forms.Select(attrs={"class": "select select-bordered w-full"}),
+            "veiculo": forms.Select(attrs={"class": "select select-bordered w-full"}),
+            "data": forms.DateInput(
+                attrs={"class": "input input-bordered w-full", "type": "date"},
+                format="%Y-%m-%d",
+            ),
+            "hora_inicio": forms.TimeInput(
+                attrs={"class": "input input-bordered w-full", "type": "time"},
+                format="%H:%M",
+            ),
+            "hora_fim": forms.TimeInput(
+                attrs={"class": "input input-bordered w-full", "type": "time"},
+                format="%H:%M",
+            ),
+            "destino": forms.TextInput(
+                attrs={
+                    "class": "input input-bordered w-full",
+                    "placeholder": "Ex.: Visita a cliente",
+                }
+            ),
+        }
+        labels = {
+            "funcionario": "Colaborador",
+            "veiculo": "Veículo",
+            "data": "Data da reserva",
+            "hora_inicio": "Horário de início",
+            "hora_fim": "Horário de fim",
+            "destino": "Destino",
+        }
+        help_texts = {
+            "hora_inicio": "Deixe as duas horas em branco para reserva de dia inteiro.",
+            "destino": "Opcional.",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["data"].input_formats = ["%Y-%m-%d"]
+        self.fields["hora_inicio"].input_formats = ["%H:%M"]
+        self.fields["hora_fim"].input_formats = ["%H:%M"]
+
+        # Mesma regra do lançamento: só viaja quem está ativo e tem centro de
+        # custo, porque é o centro de custo que recebe o rateio depois.
+        self.fields["funcionario"].queryset = (
+            Funcionario.objects.filter(ativo=True, centro_custo__isnull=False)
+            .select_related("centro_custo")
+            .order_by("nome")
+        )
+        self.fields["funcionario"].required = True
+        self.fields["funcionario"].empty_label = "Selecione um colaborador"
+
+        self.fields["veiculo"].queryset = Veiculo.objects.filter(ativo=True).order_by(
+            "placa"
+        )
+        self.fields["veiculo"].empty_label = "Selecione um veículo"
+
+    def clean(self):
+        cleaned = super().clean()
+        hora_inicio = cleaned.get("hora_inicio")
+        hora_fim = cleaned.get("hora_fim")
+
+        # Uma hora só é ambíguo: não dá para dizer se é dia inteiro ou se
+        # faltou preencher. O modelo não barra isso (o Outlook manda eventos
+        # com as duas nulas), então a exigência é do formulário.
+        if bool(hora_inicio) != bool(hora_fim):
+            self.add_error(
+                "hora_fim" if hora_inicio else "hora_inicio",
+                "Informe os dois horários ou deixe ambos em branco (dia inteiro).",
+            )
+
+        return cleaned
+
+    # A coerência entre os horários e o veículo inativo ficam em
+    # `ReservaViagem.clean()`, executado pelo `_post_clean()` do ModelForm —
+    # assim valem também para o admin e para qualquer full_clean().
 
 
 class LancamentoDeReservaForm(forms.Form):

@@ -33,6 +33,14 @@ class Fechamento(models.Model):
         verbose_name_plural = "Fechamentos"
         ordering = ["-criado_em"]
         db_table = "fechamento"
+        permissions = [
+            # Permissão de negócio, distinta das quatro que o Django cria
+            # sozinho (add/change/delete/view). Fechar um período é uma ação,
+            # não a edição de uma linha: quem pode fechar não precisa poder
+            # apagar um fechamento, e é essa a permissão que o setor
+            # financeiro recebe.
+            ("realizar_fechamento", "Pode fechar períodos e ver o histórico"),
+        ]
 
     def __str__(self):
         return f"Fechamento {self.data_inicio:%d/%m/%Y} a {self.data_fim:%d/%m/%Y}"
@@ -171,6 +179,11 @@ class Viagem(models.Model):
         verbose_name_plural = "Viagens"
         ordering = ["-data", "-id"]
         db_table = "viagem"
+        permissions = [
+            # A permissão da portaria: lançar quilometragem e registrar
+            # chegadas. É ela que o financeiro NÃO recebe.
+            ("lancar_viagem", "Pode lançar viagens e registrar chegadas"),
+        ]
         constraints = [
             models.CheckConstraint(
                 # A cláusula `km_final IS NULL` libera a viagem em andamento.
@@ -370,6 +383,12 @@ class ReservaViagem(models.Model):
         verbose_name_plural = "Reservas de Viagem"
         ordering = ["data", "hora_inicio", "id"]
         db_table = "reserva_viagem"
+        permissions = [
+            # Criar reserva na mão e disparar o sync com o Outlook são a mesma
+            # responsabilidade — alimentar a agenda — e por isso uma permissão
+            # só. Quem lança KM não necessariamente precisa dela.
+            ("gerenciar_reservas", "Pode criar reservas e sincronizar com o Outlook"),
+        ]
         indexes = [
             # A consulta da agenda é sempre "reservas deste intervalo, por status".
             models.Index(fields=["data", "status"], name="idx_reserva_data_status"),
@@ -387,6 +406,34 @@ class ReservaViagem(models.Model):
     def __str__(self) -> str:
         quem = self.funcionario or self.solicitante_nome or "Solicitante não identificado"
         return f"{quem} — {self.data:%d/%m/%Y} ({self.veiculo})"
+
+    def clean(self) -> None:
+        """
+        Coerência do horário da reserva.
+
+        Só vale para o cadastro manual: o sync usa `update_or_create`, que não
+        chama `full_clean()`. É de propósito — o Outlook é a fonte da verdade
+        para o que veio dele, e um evento estranho na agenda não pode derrubar
+        a importação inteira.
+
+        Todo teste de campo é precedido de `is not None`: `clean()` roda mesmo
+        quando a validação de campo já falhou, e aí o atributo chega vazio.
+        Reserva de dia inteiro tem as duas horas nulas, e isso é válido.
+        """
+        super().clean()
+
+        if self.hora_inicio is not None and self.hora_fim is not None:
+            if self.hora_fim <= self.hora_inicio:
+                raise ValidationError(
+                    {"hora_fim": "O horário de fim deve ser posterior ao de início."}
+                )
+
+        # Pergunta à coluna, não ao objeto: com FK obrigatória, `self.veiculo`
+        # levanta RelatedObjectDoesNotExist quando o campo não foi preenchido.
+        if self.veiculo_id is not None and not self.veiculo.ativo:
+            raise ValidationError(
+                {"veiculo": "Este veículo está inativo e não aceita novas reservas."}
+            )
 
     @property
     def pendente(self) -> bool:

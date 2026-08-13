@@ -1,7 +1,6 @@
 from datetime import date, timedelta
 
 from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -11,14 +10,27 @@ from django.views.generic import ListView
 
 from django.core.exceptions import ValidationError
 
+from colaboradores.mixins import PerfilRequeridoMixin
+from colaboradores.permissoes import (
+    PERM_GERENCIAR_RESERVAS,
+    PERM_LANCAR_VIAGEM,
+    PERM_REALIZAR_FECHAMENTO,
+)
+
 from .exports import exportar_fechamento_excel
 from .forms import (
     FechamentoFiltroForm,
     LancamentoDeReservaForm,
     LancamentoViagemForm,
     RegistrarChegadaForm,
+    ReservaManualForm,
 )
 from .models import Fechamento, ReservaViagem, Viagem
+from .sincronizacao import (
+    GraphIndisponivel,
+    SemCaixasCadastradas,
+    executar_sincronizacao,
+)
 from .services import (
     ReservaIndisponivel,
     ViagemNaoEstaEmAndamento,
@@ -72,19 +84,20 @@ def _aplicar_erros_do_modelo(form, erro: ValidationError) -> None:
         form.add_error(destino, mensagens)
 
 
-class AgendaView(LoginRequiredMixin, View):
+class AgendaView(PerfilRequeridoMixin, View):
     """
     Agenda de pré-cadastros: o dia selecionado em destaque (a fila de trabalho
     do operador) e a grade do mês abaixo (panorama).
 
-    Somente leitura nesta fase — o botão "Lançar KM" de cada card é habilitado
-    na fase 3, quando existir a tela de conclusão da reserva.
-
     Navegação por htmx com `hx-select`, o mesmo padrão já usado na paginação
     de colaboradores e no histórico de fechamentos: o servidor devolve a
     página inteira e o htmx troca só o pedaço.
+
+    É a fila de trabalho da portaria, então exige a permissão de lançamento —
+    o financeiro não passa daqui.
     """
 
+    permissao_requerida = PERM_LANCAR_VIAGEM
     template_name = "agenda.html"
 
     def get(self, request: HttpRequest) -> HttpResponse:
@@ -111,7 +124,95 @@ class AgendaView(LoginRequiredMixin, View):
         return render(request, self.template_name, contexto)
 
 
-class LancarReservaView(LoginRequiredMixin, View):
+class NovaReservaView(PerfilRequeridoMixin, View):
+    """
+    Cadastro manual de reserva (o que o Outlook não trouxe).
+
+    Depois de salvar, volta para a agenda **no dia da reserva criada**, e não
+    no dia de hoje: quem acabou de cadastrar quer conferir o que cadastrou.
+    """
+
+    permissao_requerida = PERM_GERENCIAR_RESERVAS
+    template_name = "nova_reserva.html"
+
+    def _data_inicial(self, request: HttpRequest) -> date:
+        """Pré-preenche com o dia que estava aberto na agenda."""
+        return _data_do_parametro(request.GET.get("dia"), timezone.localdate())
+
+    def get(self, request: HttpRequest) -> HttpResponse:
+        form = ReservaManualForm(initial={"data": self._data_inicial(request)})
+        return render(request, self.template_name, {"form": form})
+
+    def post(self, request: HttpRequest) -> HttpResponse:
+        form = ReservaManualForm(request.POST)
+
+        if form.is_valid():
+            # `origem` fica no padrão MANUAL e `id_externo` vazio: é o que
+            # mantém esta reserva fora do alcance do cancelamento automático
+            # do sync, que só mexe no que veio do Outlook.
+            reserva = form.save()
+            messages.success(
+                request,
+                f"Reserva criada para {reserva.descricao_solicitante} em "
+                f"{reserva.data:%d/%m/%Y} ({reserva.veiculo.placa}).",
+            )
+            return redirect(f"{reverse('agenda')}?dia={reserva.data:%Y-%m-%d}")
+
+        messages.error(request, "Não foi possível criar a reserva. Verifique os campos.")
+        return render(request, self.template_name, {"form": form})
+
+
+class SincronizarReservasView(PerfilRequeridoMixin, View):
+    """
+    Dispara o sync com o Outlook pela tela.
+
+    Só POST: sincronizar grava no banco, e uma ação que altera estado não pode
+    ficar exposta a um GET — bastaria um prefetch do navegador, um robô ou um
+    F5 para disparar a importação sozinha.
+
+    A chamada é síncrona (a portaria fica esperando os poucos segundos das
+    requisições ao Graph). Vale enquanto forem 3 caixas; com dezenas, isto
+    aqui vira trabalho para uma fila.
+    """
+
+    permissao_requerida = PERM_GERENCIAR_RESERVAS
+
+    def post(self, request: HttpRequest) -> HttpResponse:
+        destino = f"{reverse('agenda')}?dia={request.POST.get('dia', '')}"
+
+        try:
+            resultado = executar_sincronizacao()
+        except SemCaixasCadastradas as erro:
+            messages.error(request, str(erro))
+            return redirect(destino)
+        except GraphIndisponivel as erro:
+            # Credencial ausente ou recusada: problema de configuração, não do
+            # operador. A mensagem diz o que é sem despejar o traceback.
+            messages.error(
+                request, f"Não foi possível falar com o Outlook: {erro}"
+            )
+            return redirect(destino)
+
+        if resultado.houve_falha_parcial:
+            # Sucesso parcial não pode ser anunciado como sucesso: as caixas
+            # que falharam não tiveram as reservas canceladas nem atualizadas,
+            # e o operador precisa saber que a agenda está incompleta.
+            caixas = ", ".join(resultado.erros)
+            messages.warning(
+                request,
+                f"Sincronização parcial ({resultado.descrever()}). "
+                f"Não foi possível ler: {caixas}.",
+            )
+        else:
+            messages.success(
+                request,
+                f"Agenda sincronizada: {resultado.descrever()}.",
+            )
+
+        return redirect(destino)
+
+
+class LancarReservaView(PerfilRequeridoMixin, View):
     """
     Conclusão de uma reserva (fase 3), atendendo os dois fluxos da portaria.
 
@@ -123,6 +224,7 @@ class LancarReservaView(LoginRequiredMixin, View):
     transação. Aqui só traduzimos exceção em mensagem de tela.
     """
 
+    permissao_requerida = PERM_LANCAR_VIAGEM
     template_name = "lancar_reserva.html"
 
     def _reserva_pendente(self, pk: int) -> ReservaViagem:
@@ -185,9 +287,10 @@ class LancarReservaView(LoginRequiredMixin, View):
         return render(request, self.template_name, {"reserva": reserva, "form": form})
 
 
-class RegistrarChegadaView(LoginRequiredMixin, View):
+class RegistrarChegadaView(PerfilRequeridoMixin, View):
     """Segunda etapa do Fluxo A: informar o KM de retorno."""
 
+    permissao_requerida = PERM_LANCAR_VIAGEM
     template_name = "registrar_chegada.html"
 
     def _viagem_aberta(self, pk: int) -> Viagem:
@@ -234,9 +337,10 @@ class RegistrarChegadaView(LoginRequiredMixin, View):
         return render(request, self.template_name, {"viagem": viagem, "form": form})
 
 
-class LancarViagemView(LoginRequiredMixin, View):
+class LancarViagemView(PerfilRequeridoMixin, View):
     """Tela do operador (portaria) para lançar as viagens dos colaboradores."""
 
+    permissao_requerida = PERM_LANCAR_VIAGEM
     template_name = "lancar_viagem.html"
 
     def _context(self, form=None):
@@ -270,7 +374,7 @@ class LancarViagemView(LoginRequiredMixin, View):
         return render(request, self.template_name, self._context(form))
 
 
-class FechamentoView(LoginRequiredMixin, View):
+class FechamentoView(PerfilRequeridoMixin, View):
     """
     Tela de fechamento e rateio.
 
@@ -281,6 +385,7 @@ class FechamentoView(LoginRequiredMixin, View):
     - POST (acao=confirmar): fecha o período de forma atômica.
     """
 
+    permissao_requerida = PERM_REALIZAR_FECHAMENTO
     template_name = "fechamento.html"
 
     def get(self, request: HttpRequest) -> HttpResponse:
@@ -330,15 +435,18 @@ class FechamentoView(LoginRequiredMixin, View):
         return redirect(f"{reverse('fechamento')}?concluido={fechamento.pk}")
 
 
-class FechamentoExportarView(LoginRequiredMixin, View):
+class FechamentoExportarView(PerfilRequeridoMixin, View):
     """Download do detalhamento (resumo + viagens) de um fechamento em Excel."""
+
+    permissao_requerida = PERM_REALIZAR_FECHAMENTO
 
     def get(self, request: HttpRequest, pk: int) -> HttpResponse:
         fechamento = get_object_or_404(Fechamento, pk=pk)
         return exportar_fechamento_excel(fechamento)
 
 
-class HistoricoFechamentosView(LoginRequiredMixin, ListView):
+class HistoricoFechamentosView(PerfilRequeridoMixin, ListView):
+    permissao_requerida = PERM_REALIZAR_FECHAMENTO
     model = Fechamento
     template_name = "historico_fechamentos.html"
     context_object_name = "fechamentos"

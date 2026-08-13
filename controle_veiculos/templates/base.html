@@ -194,7 +194,9 @@
               </div>
               <ul tabindex="0" class="menu dropdown-content z-40 mt-3 w-52 rounded-box bg-base-100 p-2 text-base-content shadow-xl">
                 <li class="menu-title">{{ request.user.nome|default:request.user.username }}</li>
-                <li><a href="{% url 'historico_fechamentos' %}">📚 Fechamentos</a></li>
+                {% if perms.viagens.realizar_fechamento %}
+                  <li><a href="{% url 'historico_fechamentos' %}">📚 Fechamentos</a></li>
+                {% endif %}
                 <li><a class="text-error" href="{% url 'logout' %}">🚪 Sair</a></li>
               </ul>
             </div>
@@ -254,7 +256,13 @@
           </div>
         </div>
 
+        {% comment %}
+          O menu mostra só o que o perfil pode abrir. Isto é conveniência, não
+          controle de acesso: a URL continua existindo e quem digitá-la esbarra
+          no PerfilRequeridoMixin da view, que é onde o acesso é decidido.
+        {% endcomment %}
         <ul class="menu w-full grow gap-1 px-3 py-4 text-base-content">
+          {% if perms.viagens.lancar_viagem %}
           <li class="menu-title">Viagens</li>
           <li>
             <a href="{% url 'agenda' %}" class="{% if request.resolver_match.url_name == 'agenda' %}active{% endif %}">
@@ -266,6 +274,10 @@
               📝 Lançar viagem
             </a>
           </li>
+          {% endif %}
+
+          {% if perms.viagens.realizar_fechamento %}
+          <li class="menu-title{% if not perms.viagens.lancar_viagem %}{% else %} mt-2{% endif %}">Fechamento</li>
           <li>
             <a href="{% url 'fechamento' %}" class="{% if request.resolver_match.url_name == 'fechamento' %}active{% endif %}">
               🧮 Fechamento e rateio
@@ -276,18 +288,23 @@
               📚 Histórico
             </a>
           </li>
+          {% endif %}
 
+          {% if perms.colaboradores.view_funcionario %}
           <li class="menu-title mt-2">Colaboradores</li>
+          {% if perms.colaboradores.change_funcionario %}
           <li>
             <a href="{% url 'funcionarios' %}" class="{% if request.resolver_match.url_name == 'funcionarios' %}active{% endif %}">
               👤 Cadastrar / inativar
             </a>
           </li>
+          {% endif %}
           <li>
             <a href="{% url 'funcionarios_cadastrados' %}" class="{% if request.resolver_match.url_name == 'funcionarios_cadastrados' %}active{% endif %}">
               📋 Cadastrados
             </a>
           </li>
+          {% endif %}
         </ul>
 
         <div class="border-t border-base-200 p-3">

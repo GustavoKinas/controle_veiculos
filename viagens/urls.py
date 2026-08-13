@@ -7,12 +7,20 @@ from .views import (
     HistoricoFechamentosView,
     LancarReservaView,
     LancarViagemView,
+    NovaReservaView,
     RegistrarChegadaView,
+    SincronizarReservasView,
 )
 
 urlpatterns = [
     path("agenda/", AgendaView.as_view(), name="agenda"),
     path("lancar/", LancarViagemView.as_view(), name="lancar_viagem"),
+    path("reservas/nova/", NovaReservaView.as_view(), name="nova_reserva"),
+    path(
+        "reservas/sincronizar/",
+        SincronizarReservasView.as_view(),
+        name="sincronizar_reservas",
+    ),
     path(
         "reservas/<int:pk>/lancar/",
         LancarReservaView.as_view(),

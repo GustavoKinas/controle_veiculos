@@ -12,6 +12,36 @@
 {% endblock %}
 
 {% block content %}
+{% if perms.viagens.gerenciar_reservas %}
+  {% comment %}
+    Barra de ações da agenda. Escondida de quem não pode gerenciar reservas —
+    conveniência de tela, não controle de acesso: quem forjar o POST ainda
+    esbarra no PerfilRequeridoMixin da view.
+  {% endcomment %}
+  <div class="mb-4 flex flex-wrap items-center justify-end gap-2">
+    {% comment %}
+      A sincronização é síncrona e leva alguns segundos (uma requisição HTTP
+      por caixa de recurso). Sem retorno visual o operador acha que travou e
+      clica de novo — o sync é idempotente e aguenta, mas a espera dobra.
+    {% endcomment %}
+    <form method="post" action="{% url 'sincronizar_reservas' %}"
+          onsubmit="this.querySelector('button').disabled = true;
+                    this.querySelector('button').textContent = 'Sincronizando…';">
+      {% csrf_token %}
+      {# Volta para o mesmo dia que estava aberto, não para hoje. #}
+      <input type="hidden" name="dia" value="{{ dia_selecionado|date:'Y-m-d' }}" />
+      <button type="submit" class="btn btn-outline btn-sm border-white/40 bg-base-100/80">
+        🔄 Sincronizar reservas
+      </button>
+    </form>
+
+    <a href="{% url 'nova_reserva' %}?dia={{ dia_selecionado|date:'Y-m-d' }}"
+       class="btn btn-primary btn-sm">
+      ➕ Nova reserva
+    </a>
+  </div>
+{% endif %}
+
 <div class="grid gap-6 lg:grid-cols-5">
 
   <!-- Fila do dia selecionado: é o trabalho concreto do operador -->

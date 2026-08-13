@@ -32,6 +32,8 @@ Django 6.0.5 · PostgreSQL · templates server-side com Tailwind (CDN) + DaisyUI
 | **este arquivo** | estado atual, decisões fechadas, armadilhas, o que vem a seguir |
 | [`../DEVELOPMENT.md`](../DEVELOPMENT.md) | arquitetura, modelos, URLs, decisões de projeto e o porquê de cada uma |
 | [`PRE_CADASTRO_VIAGENS.md`](PRE_CADASTRO_VIAGENS.md) | desenho completo do pré-cadastro/agenda e da integração (5 fases) |
+| [`UTILIZACOES_DO_SISTEMA.md`](UTILIZACOES_DO_SISTEMA.md) | manual de operação: usuários, permissões, sync, lançamento, fechamento |
+| [`SINCRONIZACAO.md`](SINCRONIZACAO.md) | guia rápido de sincronizar reservas pelo shell/CLI |
 | [`../ESTUDO.md`](../ESTUDO.md) | roteiro de estudo do backend + caça aos bugs conhecidos |
 
 ---
@@ -60,7 +62,8 @@ O banco foi **zerado e repovoado em 13/08**. Estado:
 | colaboradores | 188 (136 com e-mail, 159 podem viajar) |
 | centros de custo | 54 |
 | veículos | 3 — os carros reais, **todos com caixa de recurso** |
-| viagens / reservas / fechamentos | 0 |
+| reservas | 3 pendentes, importadas do Outlook (13 e 14/08) |
+| viagens / fechamentos | 0 |
 | superusuário | `administrador` |
 
 **Os carros reais ganharam caixa de recurso no Outlook** e o `email_recurso`
@@ -73,23 +76,35 @@ já está preenchido no banco:
 | `RLN1J19` | STRADA | `stradarln1j19@puflexivel.com.br` |
 
 Note o domínio: `@puflexivel.com.br`, diferente do `@grupoflexivel.com.br` dos
-colaboradores. **Ainda não houve um sync bem-sucedido contra essas caixas** —
-se forem de outro tenant, o token atual pode não enxergá-las. É a primeira
-coisa a verificar (ver Pendências).
+colaboradores. **O sync contra essas caixas já rodou com sucesso** (13/08): as
+três respondem ao token atual, o receio de estarem em outro tenant não se
+confirmou. Um segundo `--dry-run` devolveu `criadas 0 / atualizadas 3`, o que
+valida a idempotência pelo `id_externo` contra a API de verdade, e não só em
+teste.
 
 O andaime que validou a integração (as 8 salas de reunião cadastradas como
 veículos) **já foi removido**. O comando `cadastrar_veiculos_salas` continua
-no repositório caso seja preciso reproduzir aquela validação.
+no repositório, mas não serve mais para revalidar o caminho real: as salas são
+`@grupoflexivel.com.br` e os carros `@puflexivel.com.br`, então ele não
+exercita o mesmo caminho de permissão que o sync de produção usa.
 
 ⚠️ Os hodômetros (`Veiculo.km_atual`) carregam resíduo das viagens de teste
 apagadas (ex.: `RLN1J19` com 110.588 km). É o comportamento projetado — o
 recompute preserva o valor do cadastro quando não há viagens — mas hoje é
 lixo, e vira o **piso** da primeira viagem real de cada veículo.
 
-### Nada foi commitado ainda
+### Tudo commitado
 
-O último commit é `6829cb8`. Tudo da fase 3 em diante está no diretório de
-trabalho, incluindo os diretórios novos `docs/` e `viagens/integracoes/`.
+A fase 3 em diante foi versionada na `main` em 13/08, em nove commits de
+propósito único — o último é `ffe613c`. Cada commit leva o teste da feature
+que introduz, e a suíte passa em todos eles (76 → 80 → 91 testes), não só na
+ponta.
+
+O commit `ffe613c` **removeu o `criar_reservas_mock`**. Ele gerava reservas
+fictícias no formato do `getSchedule`, endpoint que acabou descartado em favor
+do `calendarView`, e por isso identificava o solicitante por nome em texto
+livre sem nunca gravar `solicitante_email` — a chave que a integração real
+usa. Para popular o ambiente local hoje, rode o sync de verdade.
 
 ---
 
@@ -168,21 +183,49 @@ o HTML. Para várias linhas, `{% comment %}`.
 python manage.py test viagens
 psql -U postgres -c "ALTER ROLE controle_veiculos CREATEDB;"   # se der permissão negada
 
+# Perfis de acesso — rode ANTES de criar os usuários operacionais
+python manage.py configurar_perfis
+python manage.py configurar_perfis --listar        # confere o que está no banco
+
 # Popular do zero
-python manage.py criar_portaria --superuser
+python manage.py criar_portaria --senha ...        # nunca dá /admin (o --superuser foi removido)
+python manage.py criar_financeiro --senha ...      # só fechamento
+python manage.py createsuperuser                   # quem administra o sistema
 python manage.py cadastro_centro_custo colaboradores/management/commands/cc.csv
 python manage.py cadastro_funcionarios colaboradores/management/commands/funcionarios_total_com_email.csv
 
 # Integração com o Outlook
-python manage.py cadastrar_veiculos_salas          # andaime — só se precisar revalidar com as salas
+python manage.py cadastrar_veiculos_salas          # andaime — ver ressalva na §3
 python manage.py sincronizar_reservas --dry-run
 python manage.py sincronizar_reservas --dias 30
 ```
+
+Guia detalhado de sincronização pelo shell: [`SINCRONIZACAO.md`](SINCRONIZACAO.md).
 
 Credenciais do Graph vêm do `.env`: `CLIENT_ID`, `SECRETY_VALUE` (sic),
 `URL_MICROSOFT`. O `poc_microsoft_graph.py` na raiz é o laboratório de
 exploração da API — **não** é usado pela aplicação, que tem seu próprio
 cliente em `viagens/integracoes/microsoft_graph.py`.
+
+### Perfis de acesso
+
+A política mora em `colaboradores/permissoes.py` — é o único lugar onde
+"quem pode o quê" está escrito.
+
+| Perfil | Pode | Não pode |
+|---|---|---|
+| **Portaria** | agenda, lançar viagem, reservas, sync, colaboradores, fechamento | `/admin` |
+| **Financeiro** | `/viagens/fechamento/` e `/viagens/fechamentos/` | lançar, agenda, reservas, colaboradores, `/admin` |
+| **administrador** | tudo, inclusive `/admin` | — |
+
+⚠️ No banco de desenvolvimento os dois grupos existem mas estão **vazios** —
+só o `administrador` consegue logar hoje. Rode `criar_portaria` e
+`criar_financeiro` antes de testar as telas.
+
+A portaria **manteve** o fechamento: o pedido foi criar o perfil financeiro e
+tirar o `/admin` dela, não reduzir suas atribuições. Para separar as funções
+de verdade, remova `PERM_REALIZAR_FECHAMENTO` da lista do `GRUPO_PORTARIA` em
+`permissoes.py` e rode `configurar_perfis` de novo.
 
 ---
 
@@ -190,28 +233,21 @@ cliente em `viagens/integracoes/microsoft_graph.py`.
 
 Em ordem aproximada de valor.
 
-1. **Rodar o primeiro sync contra as caixas dos carros reais** — nunca foi
-   feito. Comece por `python manage.py sincronizar_reservas --dias 30 --dry-run`.
-   Se as caixas `@puflexivel.com.br` estiverem em outro tenant, o comando
-   reporta a falha por caixa em vez de quebrar, e aí o problema é de permissão
-   da aplicação no Azure, não de código.
-2. **Commitar.** Nada da fase 3 em diante está versionado. Vale separar em
-   commits com propósito único (ver `ESTUDO.md` Etapa 0).
-3. **Serviço `scheduler` no `docker-compose.yml`.** O comando está pronto e
+1. **Serviço `scheduler` no `docker-compose.yml`.** O comando está pronto e
    sai com código diferente de zero quando alguma caixa falha; falta o YAML
    descrito na §8.2.
-4. **Zerar os hodômetros** dos veículos, se quiser começar limpo:
+2. **Zerar os hodômetros** dos veículos, se quiser começar limpo:
    `Veiculo.objects.update(km_atual=0)`.
-5. **Aviso de viagens em andamento no fechamento** já existe; o caso "período
+3. **Aviso de viagens em andamento no fechamento** já existe; o caso "período
    só com viagens em andamento" ainda mostra "nenhuma viagem em aberto" sem o
    aviso (`_rateio.html`).
-6. **Caça aos bugs do `ESTUDO.md`** — 7 itens abertos, sendo os dois primeiros
+4. **Caça aos bugs do `ESTUDO.md`** — 7 itens abertos, sendo os dois primeiros
    os que mais importam: viagem retroativa lançada depois do fechamento fica
    órfã, e nada impede fechamentos com períodos sobrepostos.
-7. **Colaboradores da EVO sem centro de custo** (ex.: ADONIRAM AMARAL ROCHA,
+5. **Colaboradores da EVO sem centro de custo** (ex.: ADONIRAM AMARAL ROCHA,
    e-mail `@evo.ind.br`). Se essas pessoas reservam carro, precisam de centro
    de custo para conseguir lançar viagem.
-8. **Reservas de dia inteiro que cruzam vários dias** viram uma reserva só, na
+6. **Reservas de dia inteiro que cruzam vários dias** viram uma reserva só, na
    data de início. Se isso importar, o modelo precisa de data de fim.
 
 ---

@@ -46,7 +46,10 @@ CSRF_TRUSTED_ORIGINS = [
 # Application definition
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    # Troca o AdminSite padrão pelo nosso, que também recusa quem pertence a
+    # um perfil operacional (ver controle_veiculos/admin.py). Substitui
+    # "django.contrib.admin" — as duas entradas não podem coexistir.
+    "controle_veiculos.admin.ControleVeiculosAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -155,5 +158,8 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "lancar_viagem"
+# Destino único que reparte por perfil: a portaria vai para o lançamento, o
+# financeiro para o fechamento. Apontar direto para "lancar_viagem" daria 403
+# de boas-vindas a quem não pode lançar.
+LOGIN_REDIRECT_URL = "pagina_inicial"
 LOGOUT_REDIRECT_URL = "login"

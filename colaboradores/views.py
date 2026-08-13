@@ -1,12 +1,30 @@
 from django.contrib.auth import logout
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.views import View
 from django.views.generic import ListView
 
 from .forms import CadastroFuncionario, InativarFuncionarioForm
+from .mixins import PerfilRequeridoMixin
 from .models import Funcionario
+from .permissoes import (
+    PERM_ALTERAR_COLABORADOR,
+    PERM_VER_COLABORADOR,
+    pagina_inicial_de,
+)
+
+
+def pagina_inicial(request: HttpRequest) -> HttpResponse:
+    """
+    Porta de entrada da raiz do site e destino do login.
+
+    Antes a raiz redirecionava direto para o lançamento de viagens. Com mais
+    de um perfil isso deixou de servir: o financeiro cairia justamente na tela
+    que não pode ver, e receberia um 403 como boas-vindas.
+    """
+    if not request.user.is_authenticated:
+        return redirect("login")
+    return redirect(pagina_inicial_de(request.user))
 
 
 def logout_usuario(request: HttpRequest) -> HttpResponse:
@@ -21,7 +39,8 @@ def logout_usuario(request: HttpRequest) -> HttpResponse:
     return redirect("login")
 
 
-class FuncionariosView(LoginRequiredMixin, View):
+class FuncionariosView(PerfilRequeridoMixin, View):
+    permissao_requerida = PERM_ALTERAR_COLABORADOR
     template_name = "funcionarios.html"
 
     def get(self, request: HttpRequest) -> HttpResponse:
@@ -96,7 +115,8 @@ class FuncionariosView(LoginRequiredMixin, View):
         )
 
 
-class FuncionariosCadastradosView(LoginRequiredMixin, ListView):
+class FuncionariosCadastradosView(PerfilRequeridoMixin, ListView):
+    permissao_requerida = PERM_VER_COLABORADOR
     model = Funcionario
     template_name = "funcionarios_cadastrados.html"
     context_object_name = "funcionarios_cadastrados"

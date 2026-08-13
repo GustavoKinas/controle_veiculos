@@ -26,7 +26,7 @@ Referências: `viagens/services.py`, `viagens/models.py`, `viagens/forms.py`.
 """
 
 from datetime import date, time, timedelta
-from unittest import expectedFailure
+from unittest import expectedFailure, mock
 
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
@@ -34,11 +34,25 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from colaboradores.models import CentroCusto, Funcionario
+from django.contrib.auth.models import Group, Permission
 
-from .forms import LancamentoViagemForm
+from colaboradores.models import CentroCusto, Funcionario
+from colaboradores.permissoes import (
+    GRUPO_FINANCEIRO,
+    GRUPO_PORTARIA,
+    PERMISSOES_POR_PERFIL,
+    criar_usuario_de_perfil,
+    sincronizar_perfis,
+)
+
+from .forms import LancamentoViagemForm, ReservaManualForm
 from .integracoes.microsoft_graph import normalizar_evento
-from .models import ReservaViagem, Veiculo, Viagem
+from .models import Fechamento, ReservaViagem, Veiculo, Viagem
+from .sincronizacao import (
+    GraphIndisponivel,
+    ResultadoSincronizacao,
+    SemCaixasCadastradas,
+)
 from .services import (
     ReservaIndisponivel,
     ViagemNaoEstaEmAndamento,
@@ -74,12 +88,24 @@ class BaseViagensTest(TestCase):
 
     @classmethod
     def setUpTestData(cls):
+        # Os grupos de acesso precisam existir antes dos usuários: desde que as
+        # views passaram a exigir permissão, um `portaria` sem perfil não
+        # conseguiria abrir tela nenhuma, e todo teste de view falharia por
+        # 403 em vez de testar o que se propõe.
+        sincronizar_perfis()
+
         cls.cc_ti = CentroCusto.objects.create(codigo="1012201006", descricao="TI")
         cls.cc_projetos = CentroCusto.objects.create(
             codigo="1011105012", descricao="Projetos"
         )
 
         cls.portaria = Funcionario.objects.create(username="portaria", nome="PORTARIA")
+        cls.portaria.groups.add(Group.objects.get(name=GRUPO_PORTARIA))
+
+        cls.financeiro = Funcionario.objects.create(
+            username="financeiro", nome="FINANCEIRO"
+        )
+        cls.financeiro.groups.add(Group.objects.get(name=GRUPO_FINANCEIRO))
         cls.funcionario = Funcionario.objects.create(
             username="adriano",
             nome="ADRIANO AMBROSIO BODNAR",
@@ -1113,3 +1139,351 @@ class LacunasConhecidasTest(BaseViagensTest):
         # TODO: crie dois Fechamento com períodos que se cruzam e assert que
         #       o segundo é recusado.
         self.fail("comportamento ainda não implementado")
+
+
+# =========================================================================
+# 10. Perfis de acesso, reserva manual e sync pela tela
+#
+# O controle de acesso é testado pela porta da frente (`self.client`), nunca
+# só pelo `has_perm`: o que interessa não é o usuário ter a permissão, é a URL
+# recusar quem não tem. Um mixin esquecido numa view passa despercebido por
+# qualquer teste que só olhe o objeto de usuário.
+# =========================================================================
+@override_settings(STORAGES=STORAGES_DE_TESTE)
+class PerfilFinanceiroTest(BaseViagensTest):
+    """O financeiro fecha períodos e mais nada."""
+
+    ROTAS_PERMITIDAS = ["fechamento", "historico_fechamentos"]
+    ROTAS_NEGADAS = [
+        "agenda",
+        "lancar_viagem",
+        "nova_reserva",
+        "funcionarios",
+        "funcionarios_cadastrados",
+    ]
+
+    def setUp(self):
+        self.client.force_login(self.financeiro)
+
+    def test_acessa_fechamento_e_historico(self):
+        for nome in self.ROTAS_PERMITIDAS:
+            with self.subTest(rota=nome):
+                self.assertEqual(self.client.get(reverse(nome)).status_code, 200)
+
+    def test_nao_acessa_as_telas_da_portaria(self):
+        for nome in self.ROTAS_NEGADAS:
+            with self.subTest(rota=nome):
+                resposta = self.client.get(reverse(nome))
+                # Redireciona para a página inicial do perfil dele, não entrega 200.
+                self.assertEqual(resposta.status_code, 302)
+                self.assertNotIn(reverse(nome), resposta["Location"])
+
+    def test_nao_dispara_a_sincronizacao(self):
+        """Sem `gerenciar_reservas`, o POST é recusado antes de tocar a API."""
+        resposta = self.client.post(reverse("sincronizar_reservas"), {"dia": ""})
+
+        self.assertEqual(resposta.status_code, 302)
+        self.assertEqual(ReservaViagem.objects.count(), 0)
+
+    def test_consegue_confirmar_um_fechamento(self):
+        """A permissão não é decorativa: ele precisa conseguir fechar."""
+        self.criar_viagem(data=date(2026, 8, 3))
+
+        resposta = self.client.post(
+            reverse("fechamento"),
+            {"data_inicio": "2026-08-01", "data_fim": "2026-08-31"},
+        )
+
+        self.assertEqual(resposta.status_code, 302)
+        self.assertEqual(Fechamento.objects.count(), 1)
+
+    def test_pagina_inicial_leva_ao_fechamento(self):
+        """Sem isto, o login do financeiro cairia num 403 de boas-vindas."""
+        self.assertRedirects(self.client.get("/"), reverse("fechamento"))
+
+
+@override_settings(STORAGES=STORAGES_DE_TESTE)
+class PerfilPortariaTest(BaseViagensTest):
+    """A portaria opera o dia a dia e nunca entra no /admin."""
+
+    def setUp(self):
+        self.client.force_login(self.portaria)
+
+    def test_acessa_as_telas_de_operacao(self):
+        for nome in ["agenda", "lancar_viagem", "nova_reserva"]:
+            with self.subTest(rota=nome):
+                self.assertEqual(self.client.get(reverse(nome)).status_code, 200)
+
+    def test_usuario_de_perfil_nasce_sem_acesso_ao_admin(self):
+        criar_usuario_de_perfil(
+            username="portaria2", senha="x", nome="Portaria 2", grupo=GRUPO_PORTARIA
+        )
+
+        usuario = Funcionario.objects.get(username="portaria2")
+        self.assertFalse(usuario.is_staff)
+        self.assertFalse(usuario.is_superuser)
+
+    def test_recriar_rebaixa_quem_ja_era_superusuario(self):
+        """
+        O comando não só cria: conserta. Rodá-lo sobre um usuário que ganhou
+        /admin em algum momento tem que tirar o acesso, sem depender de alguém
+        lembrar de desmarcar a caixa.
+        """
+        Funcionario.objects.filter(pk=self.portaria.pk).update(
+            is_staff=True, is_superuser=True
+        )
+
+        criar_usuario_de_perfil(
+            username="portaria", senha="nova", nome="PORTARIA", grupo=GRUPO_PORTARIA
+        )
+
+        self.portaria.refresh_from_db()
+        self.assertFalse(self.portaria.is_staff)
+        self.assertFalse(self.portaria.is_superuser)
+
+    def test_admin_recusa_a_portaria_mesmo_com_is_staff(self):
+        """
+        A garantia de "sob nenhuma hipótese": mesmo com `is_staff` marcado na
+        mão, o AdminSite recusa quem está num perfil operacional.
+        """
+        Funcionario.objects.filter(pk=self.portaria.pk).update(is_staff=True)
+
+        resposta = self.client.get("/admin/", follow=True)
+
+        # Em vez do painel, o admin devolve o próprio formulário de login.
+        self.assertNotContains(resposta, "Administração do sistema")
+
+    def test_admin_recusa_o_financeiro_mesmo_com_is_staff(self):
+        Funcionario.objects.filter(pk=self.financeiro.pk).update(is_staff=True)
+        self.client.force_login(self.financeiro)
+
+        resposta = self.client.get("/admin/", follow=True)
+
+        self.assertNotContains(resposta, "Administração do sistema")
+
+    def test_superusuario_continua_entrando_no_admin(self):
+        """A trava é para perfil operacional, não para o administrador."""
+        admin = Funcionario.objects.create_superuser(
+            username="administrador", password="x"
+        )
+        self.client.force_login(admin)
+
+        resposta = self.client.get("/admin/")
+
+        self.assertEqual(resposta.status_code, 200)
+
+
+class PerfisConfiguradosTest(TestCase):
+    """A política declarada em permissoes.py precisa chegar ao banco."""
+
+    def test_sincronizar_perfis_e_idempotente(self):
+        sincronizar_perfis()
+        sincronizar_perfis()
+
+        for nome, rotulos in PERMISSOES_POR_PERFIL.items():
+            with self.subTest(perfil=nome):
+                grupo = Group.objects.get(name=nome)
+                self.assertEqual(grupo.permissions.count(), len(rotulos))
+
+    def test_financeiro_nao_recebe_permissao_de_operacao(self):
+        sincronizar_perfis()
+
+        codenames = set(
+            Group.objects.get(name=GRUPO_FINANCEIRO)
+            .permissions.values_list("codename", flat=True)
+        )
+
+        self.assertIn("realizar_fechamento", codenames)
+        self.assertNotIn("lancar_viagem", codenames)
+        self.assertNotIn("gerenciar_reservas", codenames)
+
+    def test_tirar_permissao_da_politica_tira_de_quem_ja_tinha(self):
+        """
+        `set()` e não `add()`: se o comando só acrescentasse, a política do
+        arquivo e a do banco divergiriam em silêncio — e a do banco é a que
+        vale na hora de negar acesso.
+        """
+        sincronizar_perfis()
+        grupo = Group.objects.get(name=GRUPO_FINANCEIRO)
+        grupo.permissions.add(Permission.objects.get(codename="lancar_viagem"))
+
+        sincronizar_perfis()
+
+        self.assertNotIn(
+            "lancar_viagem",
+            set(grupo.permissions.values_list("codename", flat=True)),
+        )
+
+
+@override_settings(STORAGES=STORAGES_DE_TESTE)
+class ReservaManualTest(BaseViagensTest):
+    """Cadastro de reserva pelo painel."""
+
+    def setUp(self):
+        self.client.force_login(self.portaria)
+
+    def dados_reserva(self, **kwargs) -> dict:
+        dados = {
+            "funcionario": self.funcionario.pk,
+            "veiculo": self.strada.pk,
+            "data": "2026-08-20",
+            "hora_inicio": "08:00",
+            "hora_fim": "12:00",
+            "destino": "Visita a cliente",
+        }
+        dados.update(kwargs)
+        return dados
+
+    def test_cria_reserva_e_volta_para_o_dia_dela(self):
+        resposta = self.client.post(reverse("nova_reserva"), self.dados_reserva())
+
+        reserva = ReservaViagem.objects.get()
+        self.assertEqual(reserva.funcionario, self.funcionario)
+        self.assertEqual(reserva.status, ReservaViagem.Status.PENDENTE)
+        # Volta para o dia da reserva criada, não para hoje.
+        self.assertRedirects(
+            resposta,
+            f"{reverse('agenda')}?dia=2026-08-20",
+            fetch_redirect_response=False,
+        )
+
+    def test_reserva_manual_nasce_sem_id_externo(self):
+        """
+        É o que a protege do sync: `id_externo` vazio significa que ela não
+        veio do Outlook, e por isso a rodada seguinte não a cancela por ter
+        "sumido da agenda".
+        """
+        self.client.post(reverse("nova_reserva"), self.dados_reserva())
+
+        reserva = ReservaViagem.objects.get()
+        self.assertEqual(reserva.origem, ReservaViagem.Origem.MANUAL)
+        self.assertEqual(reserva.id_externo, "")
+
+    def test_sync_nao_cancela_reserva_manual(self):
+        """Regressão do risco acima, exercitando o serviço de verdade."""
+        self.strada.email_recurso = "stradarln1j19@puflexivel.com.br"
+        self.strada.save()
+        self.client.post(reverse("nova_reserva"), self.dados_reserva())
+        reserva = ReservaViagem.objects.get()
+
+        # Rodada em que o Outlook não devolveu evento nenhum para a caixa.
+        sincronizar_reservas(
+            eventos=[],
+            caixas_consultadas={self.strada.email_recurso},
+            data_inicio=date(2026, 8, 1),
+            data_fim=date(2026, 8, 31),
+        )
+
+        reserva.refresh_from_db()
+        self.assertEqual(reserva.status, ReservaViagem.Status.PENDENTE)
+
+    def test_hora_fim_anterior_a_inicio_e_recusada(self):
+        form = ReservaManualForm(
+            self.dados_reserva(hora_inicio="14:00", hora_fim="09:00")
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("hora_fim", form.errors)
+
+    def test_uma_hora_so_e_recusada(self):
+        """Ambíguo: não dá para saber se é dia inteiro ou campo esquecido."""
+        form = ReservaManualForm(self.dados_reserva(hora_fim=""))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("hora_fim", form.errors)
+
+    def test_reserva_de_dia_inteiro_e_valida(self):
+        form = ReservaManualForm(self.dados_reserva(hora_inicio="", hora_fim=""))
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_veiculo_inativo_e_recusado(self):
+        self.strada.ativo = False
+        self.strada.save()
+
+        form = ReservaManualForm(self.dados_reserva())
+
+        self.assertFalse(form.is_valid())
+
+    def test_post_invalido_nao_cria_reserva(self):
+        resposta = self.client.post(
+            reverse("nova_reserva"), self.dados_reserva(data="")
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(ReservaViagem.objects.count(), 0)
+
+
+@override_settings(STORAGES=STORAGES_DE_TESTE)
+class SincronizarPelaTelaTest(BaseViagensTest):
+    """O botão da agenda, sem tocar a rede."""
+
+    def setUp(self):
+        self.client.force_login(self.portaria)
+
+    def test_get_nao_e_aceito(self):
+        """
+        Sincronizar grava no banco. Se respondesse a GET, um prefetch do
+        navegador ou um robô dispararia a importação sozinho.
+        """
+        self.assertEqual(
+            self.client.get(reverse("sincronizar_reservas")).status_code, 405
+        )
+
+    def test_erro_de_credencial_vira_mensagem_e_nao_500(self):
+        with mock.patch(
+            "viagens.views.executar_sincronizacao",
+            side_effect=GraphIndisponivel("credencial ausente"),
+        ):
+            resposta = self.client.post(
+                reverse("sincronizar_reservas"), {"dia": "2026-08-13"}, follow=True
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertContains(resposta, "Não foi possível falar com o Outlook")
+
+    def test_sem_caixa_cadastrada_avisa_o_operador(self):
+        with mock.patch(
+            "viagens.views.executar_sincronizacao",
+            side_effect=SemCaixasCadastradas("Nenhum veículo ativo com caixa"),
+        ):
+            resposta = self.client.post(
+                reverse("sincronizar_reservas"), {"dia": ""}, follow=True
+            )
+
+        self.assertContains(resposta, "Nenhum veículo ativo com caixa")
+
+    def test_falha_parcial_nao_e_anunciada_como_sucesso(self):
+        """
+        Caixa que não respondeu significa agenda incompleta. Dizer
+        "sincronizado" faria o operador confiar numa lista que pode estar
+        faltando reserva.
+        """
+        resultado = ResultadoSincronizacao(
+            resumo={"criadas": 2, "atualizadas": 0, "canceladas": 0},
+            erros={"cronossxk9g85@puflexivel.com.br": "403"},
+        )
+
+        with mock.patch("viagens.views.executar_sincronizacao", return_value=resultado):
+            resposta = self.client.post(
+                reverse("sincronizar_reservas"), {"dia": ""}, follow=True
+            )
+
+        self.assertContains(resposta, "Sincronização parcial")
+        self.assertContains(resposta, "cronossxk9g85@puflexivel.com.br")
+
+    def test_sucesso_volta_para_o_dia_que_estava_aberto(self):
+        resultado = ResultadoSincronizacao(
+            resumo={"criadas": 1, "atualizadas": 0, "canceladas": 0}
+        )
+
+        with mock.patch("viagens.views.executar_sincronizacao", return_value=resultado):
+            resposta = self.client.post(
+                reverse("sincronizar_reservas"), {"dia": "2026-08-20"}
+            )
+
+        self.assertRedirects(
+            resposta,
+            f"{reverse('agenda')}?dia=2026-08-20",
+            fetch_redirect_response=False,
+        )
