@@ -72,21 +72,7 @@ Renderizado tanto no carregamento inicial quanto nas atualizações assíncronas
                 fechamentos futuros. Esta ação não pode ser desfeita.
               </p>
 
-              {% comment %}
-                Viagem em andamento não entra no fechamento (não tem km ainda).
-                Como o fechamento é irreversível, o operador precisa saber
-                disso ANTES de confirmar — pode ser que o certo seja esperar o
-                veículo voltar.
-              {% endcomment %}
-              {% if rateio.quantidade_em_andamento %}
-                <div role="alert" class="alert alert-warning">
-                  <span>
-                    Há <strong>{{ rateio.quantidade_em_andamento }}</strong>
-                    viagem(ns) em andamento neste período, tem certeza que
-                    gostaria de realizar o fechamento?
-                  </span>
-                </div>
-              {% endif %}
+              {% include 'viagens/partials/_pendencias_do_periodo.html' %}
               <div class="modal-action">
                 <form method="dialog"><button class="btn btn-ghost">Cancelar</button></form>
                 <form method="post" action="{% url 'fechamento' %}">
@@ -103,6 +89,13 @@ Renderizado tanto no carregamento inicial quanto nas atualizações assíncronas
           <div class="py-10 text-center text-base-content/50">
             Nenhuma viagem em aberto encontrada nesse período.
           </div>
+
+          {% comment %}
+            Sem viagem para fechar, mas pode haver pendência: um período em
+            que ninguém lançou nada mostrava só "nenhuma viagem em aberto",
+            escondendo justamente que existiam reservas esperando lançamento.
+          {% endcomment %}
+          {% include 'viagens/partials/_pendencias_do_periodo.html' %}
         {% endif %}
       </div>
     </div>

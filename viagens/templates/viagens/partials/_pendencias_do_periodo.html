@@ -1,0 +1,34 @@
+{% comment %}
+Avisos do que fica para trás ao fechar o período.
+
+Nenhuma das duas pendências entra na conta do rateio — viagem em andamento
+ainda não tem quilometragem, e reserva pendente muito menos. Elas aparecem
+porque o fechamento é **irreversível**: pode ser que o certo seja esperar o
+veículo voltar, ou cobrar da portaria o lançamento que faltou.
+
+Parcial próprio porque é incluído em dois lugares do `_rateio.html`: no modal
+de confirmação e no aviso de "nenhuma viagem em aberto". Sem isso, um período
+que só tem pendências mostrava "nenhuma viagem" e mais nada — silêncio no
+exato caso em que o operador mais precisa de informação.
+{% endcomment %}
+{% if rateio.quantidade_em_andamento %}
+  <div role="alert" class="alert alert-warning mt-2">
+    <span>
+      Há <strong>{{ rateio.quantidade_em_andamento }}</strong>
+      viagem(ns) em andamento neste período, tem certeza que
+      gostaria de realizar o fechamento?
+    </span>
+  </div>
+{% endif %}
+
+{% if rateio.quantidade_reservas_pendentes %}
+  <div role="alert" class="alert alert-warning mt-2">
+    <span>
+      Há <strong>{{ rateio.quantidade_reservas_pendentes }}</strong>
+      reserva(s) <strong>pendente(s)</strong> neste período — veículo
+      reservado sem quilometragem lançada. Confira a
+      <a href="{% url 'agenda' %}" class="link font-semibold">agenda</a>
+      antes de fechar.
+    </span>
+  </div>
+{% endif %}

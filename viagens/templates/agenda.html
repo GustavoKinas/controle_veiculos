@@ -44,7 +44,14 @@
 
 <div class="grid gap-6 lg:grid-cols-5">
 
-  <!-- Fila do dia selecionado: é o trabalho concreto do operador -->
+  {% comment %}
+    Fila do dia selecionado: é o trabalho concreto do operador.
+
+    Proporção 2/5 contra 3/5 do calendário: tentamos inverter para alargar
+    este card, mas o calendário espremido em 2/5 fica ruim — a grade mensal
+    precisa de largura para as sete colunas respirarem. Quem resolve o nome
+    cortado é a quebra de linha (ver o `break-words` abaixo), não a largura.
+  {% endcomment %}
   <div class="lg:col-span-2">
     <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
       <div class="card-body">
@@ -65,7 +72,13 @@
                           {% if reserva.status == 'lancada' %}opacity-60{% endif %}">
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0">
-                    <p class="truncate font-semibold" title="{{ reserva.descricao_solicitante }}">
+                    {% comment %}
+                      Sem `truncate`: o nome do colaborador é a informação que
+                      identifica a reserva, e cortá-lo pela metade obrigava o
+                      operador a passar o mouse para ler. Nome comprido agora
+                      quebra em duas linhas — o card cresce, que é o mal menor.
+                    {% endcomment %}
+                    <p class="font-semibold break-words">
                       {% if reserva.hora_inicio %}
                         <span class="font-mono text-sm">{{ reserva.hora_inicio|time:"H:i" }}</span>
                       {% endif %}

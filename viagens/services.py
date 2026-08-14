@@ -513,12 +513,44 @@ def contar_viagens_em_andamento(data_inicio: date, data_fim: date) -> int:
         data__lte=data_fim,
     ).count()
 
+def contar_reservas_viagem_pendentes(data_inicio: date, data_fim: date) -> int:
+    """
+    Reservas do período que nunca viraram viagem.
+
+    Pendente é o estado de quem não foi resolvido: reserva **lançada** já
+    virou viagem e entra no rateio; **cancelada** foi descartada de propósito.
+    Sobra a pendente — alguém reservou o carro e ninguém lançou a
+    quilometragem.
+
+    Ao contrário da viagem em andamento, uma reserva pendente **não carrega
+    quilometragem nenhuma** e por isso não tem como distorcer o rateio. O
+    número existe como sinal de trabalho inacabado: fechar o período com
+    reservas pendentes é legítimo, mas provavelmente significa que a portaria
+    esqueceu de lançar alguma coisa.
+
+    `data__range` é inclusivo nas duas pontas — mesmo intervalo de
+    `contar_viagens_em_andamento`, escrito de outro jeito.
+
+    ⚠️ Uma reserva pendente antiga continua sendo contada em toda prévia que
+    inclua a data dela, mesmo depois do período já ter sido fechado. É o
+    comportamento correto (ela *continua* pendente), mas significa que o aviso
+    só some quando alguém lança ou cancela a reserva.
+    """
+    return ReservaViagem.objects.filter(
+        status=ReservaViagem.Status.PENDENTE,
+        data__range=(data_inicio, data_fim),
+    ).count()
+
 
 def calcular_rateio(data_inicio: date, data_fim: date) -> dict:
     """
     Prévia (somente leitura) do rateio do período: total de km, quantidade de
-    viagens, a soma/percentual por Centro de Custo e quantas viagens do
-    período ficarão de fora por ainda estarem em andamento.
+    viagens, a soma/percentual por Centro de Custo e **duas contagens de
+    pendência** — viagens ainda na rua e reservas que nunca viraram viagem.
+
+    As duas pendências não afetam o rateio: viagem em andamento não tem
+    quilometragem e reserva pendente muito menos. Elas existem para o operador
+    saber o que fica para trás antes de confirmar uma ação irreversível.
     """
     viagens = viagens_em_aberto(data_inicio, data_fim)
 
@@ -548,7 +580,13 @@ def calcular_rateio(data_inicio: date, data_fim: date) -> dict:
     return {
         "total_km": total_km,
         "quantidade_viagens": viagens.count(),
+        # Os dois contadores de pendência do período. Nenhum dos dois entra na
+        # conta do rateio — existem para o operador decidir se é hora de
+        # fechar, já que o fechamento é irreversível.
         "quantidade_em_andamento": contar_viagens_em_andamento(data_inicio, data_fim),
+        "quantidade_reservas_pendentes": contar_reservas_viagem_pendentes(
+            data_inicio, data_fim
+        ),
         "linhas": linhas,
     }
 

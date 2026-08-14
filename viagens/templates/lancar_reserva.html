@@ -53,9 +53,10 @@
           {% endif %}
         </div>
 
-        <p class="mt-3 text-xs text-base-content/60">
+        {# É o número que o operador compara com o painel do carro: precisa ser lido de relance. #}
+        <p class="mt-3 text-base text-base-content/80">
           Hodômetro atual de {{ reserva.veiculo.placa }}:
-          <span class="font-mono font-semibold">{{ reserva.veiculo.km_atual }}</span> km
+          <span class="font-mono text-lg font-bold">{{ reserva.veiculo.km_atual }}</span> km
         </p>
       </div>
 

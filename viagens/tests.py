@@ -76,6 +76,7 @@ from .services import (
     lancar_viagem_da_reserva,
     montar_calendario,
     registrar_chegada,
+    contar_reservas_viagem_pendentes,
     sincronizar_reservas,
 )
 
@@ -1930,3 +1931,169 @@ class VeiculoJaReservadoTest(BaseViagensTest):
         )
 
         self.assertEqual(resumo["criadas"], 1)
+
+
+# =========================================================================
+# 13. Pendências do período no fechamento
+#
+# O fechamento é irreversível, então o que fica para trás precisa aparecer
+# ANTES de confirmar. Duas pendências, nenhuma delas afetando o rateio:
+# viagem em andamento (sem km ainda) e reserva que nunca virou viagem.
+# =========================================================================
+class ContarReservasPendentesTest(BaseViagensTest):
+    """A contagem isolada, antes de olhar a tela."""
+
+    def reserva(self, dia: date, status=ReservaViagem.Status.PENDENTE, **kwargs):
+        return ReservaViagem.objects.create(
+            funcionario=self.funcionario,
+            veiculo=kwargs.pop("veiculo", self.strada),
+            data=dia,
+            status=status,
+            **kwargs,
+        )
+
+    def test_conta_as_pendentes_do_periodo(self):
+        self.reserva(date(2026, 8, 10))
+        self.reserva(date(2026, 8, 20), veiculo=self.cronos)
+
+        self.assertEqual(
+            contar_reservas_viagem_pendentes(date(2026, 8, 1), date(2026, 8, 31)), 2
+        )
+
+    def test_ignora_cancelada_e_lancada(self):
+        """Só pendente é trabalho inacabado."""
+        self.reserva(date(2026, 8, 10), status=ReservaViagem.Status.CANCELADA)
+        self.reserva(
+            date(2026, 8, 11),
+            status=ReservaViagem.Status.LANCADA,
+            veiculo=self.cronos,
+        )
+
+        self.assertEqual(
+            contar_reservas_viagem_pendentes(date(2026, 8, 1), date(2026, 8, 31)), 0
+        )
+
+    def test_ignora_reserva_fora_do_periodo(self):
+        self.reserva(date(2026, 7, 31))
+        self.reserva(date(2026, 9, 1), veiculo=self.cronos)
+
+        self.assertEqual(
+            contar_reservas_viagem_pendentes(date(2026, 8, 1), date(2026, 8, 31)), 0
+        )
+
+    def test_o_intervalo_inclui_as_duas_pontas(self):
+        """`data__range` é inclusivo — reserva no primeiro e no último dia conta."""
+        self.reserva(date(2026, 8, 1))
+        self.reserva(date(2026, 8, 31), veiculo=self.cronos)
+
+        self.assertEqual(
+            contar_reservas_viagem_pendentes(date(2026, 8, 1), date(2026, 8, 31)), 2
+        )
+
+    def test_periodo_de_um_dia_so(self):
+        self.reserva(date(2026, 8, 15))
+
+        self.assertEqual(
+            contar_reservas_viagem_pendentes(date(2026, 8, 15), date(2026, 8, 15)), 1
+        )
+
+
+class RateioExpoeAsPendenciasTest(BaseViagensTest):
+    """A prévia carrega os dois contadores para a tela."""
+
+    def test_o_rateio_traz_as_duas_contagens(self):
+        self.criar_viagem(data=date(2026, 8, 3))
+        self.criar_viagem(
+            veiculo=self.cronos, data=date(2026, 8, 4), km_inicial=105000, km_final=None
+        )
+        ReservaViagem.objects.create(
+            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+        )
+
+        rateio = calcular_rateio(date(2026, 8, 1), date(2026, 8, 31))
+
+        self.assertEqual(rateio["quantidade_em_andamento"], 1)
+        self.assertEqual(rateio["quantidade_reservas_pendentes"], 1)
+
+    def test_reserva_pendente_nao_entra_na_conta_do_rateio(self):
+        """
+        Reserva é intenção, não fato: não tem quilometragem e não pode mexer
+        no total nem nos percentuais.
+        """
+        self.criar_viagem(data=date(2026, 8, 3), km_inicial=100000, km_final=100100)
+        ReservaViagem.objects.create(
+            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+        )
+
+        rateio = calcular_rateio(date(2026, 8, 1), date(2026, 8, 31))
+
+        self.assertEqual(rateio["total_km"], 100)
+        self.assertEqual(rateio["quantidade_viagens"], 1)
+
+
+@override_settings(STORAGES=STORAGES_DE_TESTE)
+class AvisoDePendenciasNaTelaTest(BaseViagensTest):
+    """O aviso pela porta da frente — é onde o operador realmente o vê."""
+
+    PERIODO = {"data_inicio": "2026-08-01", "data_fim": "2026-08-31"}
+
+    def setUp(self):
+        self.client.force_login(self.financeiro)
+
+    def abrir_previa(self):
+        return self.client.get(reverse("fechamento"), self.PERIODO)
+
+    def test_avisa_sobre_reserva_pendente(self):
+        self.criar_viagem(data=date(2026, 8, 3))
+        ReservaViagem.objects.create(
+            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+        )
+
+        self.assertContains(self.abrir_previa(), "reserva(s)")
+
+    def test_sem_pendencia_nenhuma_nao_avisa_nada(self):
+        self.criar_viagem(data=date(2026, 8, 3))
+
+        resposta = self.abrir_previa()
+
+        self.assertNotContains(resposta, "reserva(s)")
+        self.assertNotContains(resposta, "viagem(ns) em andamento")
+
+    def test_periodo_so_com_reserva_pendente_tambem_avisa(self):
+        """
+        Sem viagem nenhuma, a tela mostrava só "nenhuma viagem em aberto" e
+        calava sobre as reservas — silêncio justamente no caso em que o
+        operador mais precisa saber que falta lançar.
+        """
+        ReservaViagem.objects.create(
+            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+        )
+
+        resposta = self.abrir_previa()
+
+        self.assertContains(resposta, "Nenhuma viagem em aberto")
+        self.assertContains(resposta, "reserva(s)")
+
+    def test_avisa_sobre_viagem_em_andamento(self):
+        self.criar_viagem(data=date(2026, 8, 3))
+        self.criar_viagem(
+            veiculo=self.cronos, data=date(2026, 8, 4), km_inicial=105000, km_final=None
+        )
+
+        self.assertContains(self.abrir_previa(), "em andamento")
+
+    def test_o_fechamento_nao_e_bloqueado_pela_reserva_pendente(self):
+        """
+        Aviso, não trava. Reserva pendente não carrega quilometragem e não
+        distorce o rateio; travar deixaria uma reserva esquecida de meses
+        atrás impedindo todo fechamento futuro.
+        """
+        self.criar_viagem(data=date(2026, 8, 3))
+        ReservaViagem.objects.create(
+            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+        )
+
+        resposta = self.client.post(reverse("fechamento"), self.PERIODO)
+
+        self.assertEqual(resposta.status_code, 302)
+        self.assertEqual(Fechamento.objects.count(), 1)
