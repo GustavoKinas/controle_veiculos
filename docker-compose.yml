@@ -1,17 +1,63 @@
+# Deploy do Controle de Veículos no servidor Ubuntu interno.
+#
+#   docker compose up -d --build
+#   docker compose logs -f scheduler
+#
+# A aplicação responde em http://<servidor>:5009 — porta publicada apenas
+# pelo nginx. Os demais serviços conversam pela rede interna do compose e não
+# expõem porta nenhuma no host.
+
 services:
   web:
     build: .
     container_name: controle_veiculos_app
-    command: gunicorn controle_veiculos.wsgi:application --bind 0.0.0.0:8000
+    command: gunicorn controle_veiculos.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
-    ports:
-      - "8000:8000"
+    # Sem `ports`: o gunicorn é alcançável só pela rede interna. Publicar
+    # 8000 no host daria uma porta paralela que contorna o nginx — sem os
+    # arquivos estáticos e sem os cabeçalhos de proxy.
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      # Sobrepõe o DATABASE_URL do .env. Dentro de um container, `localhost`
+      # é o próprio container — e nenhum deles tem Postgres. O host correto é
+      # `db`, o nome do serviço, resolvido pela rede interna do compose.
+      #
+      # A sobreposição existe para que o mesmo .env sirva aos dois mundos: na
+      # máquina de desenvolvimento o `runserver` fala com `localhost`, e aqui
+      # o compose reescreve para `db`. `environment` tem precedência sobre
+      # `env_file`, e as credenciais continuam vindo do .env por interpolação
+      # — nada de senha escrita neste arquivo.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+  scheduler:
+    build: .
+    container_name: controle_veiculos_scheduler
+    # Mesma imagem do web, processo diferente: importa as reservas do Outlook
+    # a cada 15 minutos (ver scheduler.sh).
+    command: /scheduler.sh
+    environment:
+      # Mesmo motivo do serviço web: dentro do container o banco é `db`.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # Quem prepara o banco é o web. Ver o comentário no entrypoint.sh.
+      RUN_SETUP: "false"
+      SYNC_INTERVALO_SEGUNDOS: "900"
+      SYNC_DIAS: "30"
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
     restart: always
 
   db:
@@ -21,19 +67,30 @@ services:
       - postgres_data:/var/lib/postgresql/data
     env_file:
       - .env
+    # O `nc -z` do entrypoint só prova que a porta abriu, não que o Postgres
+    # aceita conexões. O healthcheck fecha essa janela e é o que permite o
+    # `condition: service_healthy` acima.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: always
 
   nginx:
     image: nginx:stable
     container_name: controle_veiculos_nginx
+    # A única porta publicada no host.
     ports:
       - "5009:80"
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - web
+    restart: always
 
 volumes:
   postgres_data:

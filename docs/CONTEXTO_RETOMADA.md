@@ -33,6 +33,7 @@ Django 6.0.5 · PostgreSQL · templates server-side com Tailwind (CDN) + DaisyUI
 | [`../DEVELOPMENT.md`](../DEVELOPMENT.md) | arquitetura, modelos, URLs, decisões de projeto e o porquê de cada uma |
 | [`PRE_CADASTRO_VIAGENS.md`](PRE_CADASTRO_VIAGENS.md) | desenho completo do pré-cadastro/agenda e da integração (5 fases) |
 | [`UTILIZACOES_DO_SISTEMA.md`](UTILIZACOES_DO_SISTEMA.md) | manual de operação: usuários, permissões, sync, lançamento, fechamento |
+| [`DEPLOY.md`](DEPLOY.md) | subir no servidor Ubuntu: compose, porta 5009, scheduler de 15 min |
 | [`SINCRONIZACAO.md`](SINCRONIZACAO.md) | guia rápido de sincronizar reservas pelo shell/CLI |
 | [`../ESTUDO.md`](../ESTUDO.md) | roteiro de estudo do backend + caça aos bugs conhecidos |
 
@@ -233,22 +234,16 @@ de verdade, remova `PERM_REALIZAR_FECHAMENTO` da lista do `GRUPO_PORTARIA` em
 
 Em ordem aproximada de valor.
 
-1. **Serviço `scheduler` no `docker-compose.yml`.** O comando está pronto e
-   sai com código diferente de zero quando alguma caixa falha; falta o YAML
-   descrito na §8.2.
-2. **Zerar os hodômetros** dos veículos, se quiser começar limpo:
+1. **Zerar os hodômetros** dos veículos, se quiser começar limpo:
    `Veiculo.objects.update(km_atual=0)`.
-3. **Aviso de viagens em andamento no fechamento** já existe; o caso "período
-   só com viagens em andamento" ainda mostra "nenhuma viagem em aberto" sem o
-   aviso (`_rateio.html`).
-4. **Caça aos bugs do `ESTUDO.md`** — 7 itens abertos, sendo os dois primeiros
+2. **Reservas de dia inteiro que cruzam vários dias** viram uma reserva só,
+   na data de início. Se isso importar, o modelo precisa de data de fim.
+3. **Caça aos bugs do `ESTUDO.md`** — 7 itens abertos, sendo os dois primeiros
    os que mais importam: viagem retroativa lançada depois do fechamento fica
    órfã, e nada impede fechamentos com períodos sobrepostos.
-5. **Colaboradores da EVO sem centro de custo** (ex.: ADONIRAM AMARAL ROCHA,
+4. **Colaboradores da EVO sem centro de custo** (ex.: ADONIRAM AMARAL ROCHA,
    e-mail `@evo.ind.br`). Se essas pessoas reservam carro, precisam de centro
    de custo para conseguir lançar viagem.
-6. **Reservas de dia inteiro que cruzam vários dias** viram uma reserva só, na
-   data de início. Se isso importar, o modelo precisa de data de fim.
 
 ---
 

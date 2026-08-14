@@ -17,6 +17,23 @@ RUN pip install --upgrade pip \
 COPY . /app/
 
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY scheduler.sh /scheduler.sh
+# `sed` remove o CR: os arquivos são editados no Windows e um `\r` no fim do
+# shebang faz o Linux procurar o interpretador "/bin/sh\r", que não existe —
+# o container morre com "exec format error" antes de rodar qualquer linha.
+RUN sed -i 's/\r$//' /entrypoint.sh /scheduler.sh \
+    && chmod +x /entrypoint.sh /scheduler.sh
+
+# Prova, na hora do build, que a aplicação sobe com o que está no
+# requirements.txt — e só com isso.
+#
+# Existe porque essa falha já aconteceu: `requests` era usado pelo cliente do
+# Graph mas nunca entrou no requirements. Nos testes passava, porque o venv de
+# desenvolvimento tinha o pacote instalado por outro caminho; no container o
+# import quebrava e derrubava as views inteiras. Agora uma dependência
+# esquecida falha o `docker compose build`, não o deploy.
+#
+# `check` não abre conexão com o banco, então roda sem serviço nenhum de pé.
+RUN python manage.py check
 
 ENTRYPOINT ["/entrypoint.sh"]

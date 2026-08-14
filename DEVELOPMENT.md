@@ -19,7 +19,7 @@ Centros de Custo.
 - **Framework:** Django 6.0.5 (Python 3.12+)
 - **Banco:** PostgreSQL 16 (conexão via `DATABASE_URL` / `dj-database-url`)
 - **Servir estáticos:** WhiteNoise
-- **Deploy:** Docker Compose (web gunicorn + db postgres + nginx)
+- **Deploy:** Docker Compose (nginx :5009 + web gunicorn + scheduler + db postgres)
 
 ---
 
@@ -35,7 +35,7 @@ O repositório foi clonado de outro projeto (um sistema de **sorteio**) e estava
 | `views.py` importava `FuncionariosSorteados` (não existia) | Removido; views reescritas |
 | `base.html` apontava para URLs de sorteio (`sorteio`, `cadastro_sorteio`, `reseta_sorteio`) | Menu lateral reescrito para Viagens/Colaboradores |
 | `colaboradores` sem pasta `migrations/` | Criada (obrigatório para custom user model) |
-| `requirements.txt` corrompido (UTF-16) | Reescrito em UTF-8 |
+| `requirements.txt` corrompido (UTF-16) | Reescrito em UTF-8 — **regrediu e foi refeito em 08/2026**; salvar com `>` do PowerShell reintroduz o problema |
 | `docker-compose.yml` referenciava `sorteio.wsgi` e nomes `sorteio_*` | Ajustado para `controle_veiculos` |
 | `STATIC_ROOT` (`/app/static`) divergia do Nginx/Compose (`/app/staticfiles`) | Alinhado para `staticfiles` |
 
@@ -354,8 +354,13 @@ python manage.py criar_portaria --superuser
 python manage.py runserver
 ```
 
-Com Docker: `docker compose up --build` (o `entrypoint.sh` roda `migrate` e
-`collectstatic` automaticamente).
+Com Docker: `docker compose up -d --build`. O `entrypoint.sh` do serviço
+`web` roda `migrate`, `configurar_perfis` e `collectstatic`; o serviço
+`scheduler` sobe com `RUN_SETUP=false` e apenas sincroniza as reservas a cada
+15 minutos. A aplicação responde na **porta 5009**, publicada só pelo nginx.
+
+Passo a passo do servidor, variáveis do `.env` e diagnóstico:
+[docs/DEPLOY.md](docs/DEPLOY.md).
 
 ---
 
