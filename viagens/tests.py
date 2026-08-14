@@ -25,6 +25,8 @@ formulários (via `_post_clean`) e pelo admin, nunca pelo ORM puro. Por isso:
 Referências: `viagens/services.py`, `viagens/models.py`, `viagens/forms.py`.
 """
 
+import csv
+import io
 from datetime import date, time, timedelta
 from unittest import expectedFailure, mock
 
@@ -45,9 +47,22 @@ from colaboradores.permissoes import (
     sincronizar_perfis,
 )
 
+from .exports import (
+    CABECALHO_RATEIO,
+    exportar_rateio_csv,
+    exportar_viagens_csv,
+    montar_csv_rateio,
+    montar_csv_viagens,
+)
 from .forms import LancamentoViagemForm, ReservaManualForm
 from .integracoes.microsoft_graph import normalizar_evento
-from .models import Fechamento, ReservaViagem, Veiculo, Viagem
+from .models import (
+    Fechamento,
+    ReservaViagem,
+    Veiculo,
+    Viagem,
+    periodos_se_sobrepoem,
+)
 from .sincronizacao import (
     GraphIndisponivel,
     ResultadoSincronizacao,
@@ -339,8 +354,10 @@ class ViagensViewsTest(BaseViagensTest):
         # TODO: status 200 (não redirect), Viagem.objects.count() == 0.
         self.skipTest("TODO")
 
-    def test_exportacao_retorna_xlsx(self):
+    def test_exportacao_retorna_csv(self):
         # TODO: confira o Content-Type e o Content-Disposition (attachment).
+        #       Já existe cobertura real na seção 11 — este aqui é para você
+        #       escrever do zero, chegando na mesma conclusão por outro caminho.
         self.skipTest("TODO")
 
     def test_exportacao_de_fechamento_inexistente_retorna_404(self):
@@ -1487,3 +1504,429 @@ class SincronizarPelaTelaTest(BaseViagensTest):
             f"{reverse('agenda')}?dia=2026-08-20",
             fetch_redirect_response=False,
         )
+
+# =========================================================================
+# 11. Exportação em CSV — rateio e viagens, arquivos separados
+#
+# O rateio é importado no ERP, então o teste central é o de forma: uma
+# tabela e nada mais. Título de seção, linha em branco ou linha de total
+# viram registro fantasma na importação, e nenhum deles aparece num "abri
+# aqui e estava bonito".
+#
+# Os outros três protegem a leitura no Excel pt-BR: separador, BOM e decimal
+# com vírgula. O `;` só quebra em quem tem Excel em português, e o BOM
+# ausente só destrói acento em quem tem ANSI diferente — não dá para
+# descobrir por inspeção casual.
+# =========================================================================
+class ExportarRateioCsvTest(BaseViagensTest):
+    """O arquivo que vai para o ERP."""
+
+    def setUp(self):
+        # Dois centros de custo, para o rateio ter mais de uma linha e o
+        # percentual não ser trivialmente 100.
+        self.criar_viagem(data=date(2026, 8, 3), km_inicial=100000, km_final=100100)
+        self.criar_viagem(
+            funcionario=self.funcionario_inativo,
+            centro_custo=self.cc_ti,
+            veiculo=self.cronos,
+            data=date(2026, 8, 4),
+            km_inicial=105000,
+            km_final=105300,
+        )
+        self.fechamento = confirmar_fechamento(
+            date(2026, 8, 1), date(2026, 8, 31), usuario=self.portaria
+        )
+
+    def linhas(self) -> list[list[str]]:
+        texto = montar_csv_rateio(self.fechamento)
+        return list(csv.reader(io.StringIO(texto), delimiter=";"))
+
+    # -- forma: é uma tabela, e só ---------------------------------------
+    def test_e_uma_tabela_pura(self):
+        """
+        Cabeçalho + uma linha por centro de custo. Nada mais.
+
+        Cada elemento a mais (título, linha em branco, total) entraria no ERP
+        como se fosse um centro de custo.
+        """
+        linhas = self.linhas()
+
+        self.assertEqual(len(linhas), 1 + self.fechamento.rateios.count())
+
+    def test_nao_tem_linha_em_branco(self):
+        texto = montar_csv_rateio(self.fechamento)
+
+        self.assertNotIn("\r\n\r\n", texto)
+
+    def test_nao_tem_titulo_nem_linha_de_total(self):
+        texto = montar_csv_rateio(self.fechamento)
+
+        self.assertNotIn("Fechamento de", texto)
+        self.assertNotIn("Resumo do Rateio", texto)
+        self.assertNotIn("Total", texto)
+
+    def test_todas_as_linhas_tem_a_mesma_quantidade_de_colunas(self):
+        """Coluna com significado fixo é o que a importação exige."""
+        linhas = self.linhas()
+
+        larguras = {len(linha) for linha in linhas}
+        self.assertEqual(larguras, {len(CABECALHO_RATEIO)})
+
+    def test_o_periodo_vem_em_coluna_e_nao_em_titulo(self):
+        """
+        A data do fechamento estava num título no topo do arquivo. Como
+        título não é dado tabular, ela virou coluna — e aí cada linha se
+        basta sozinha na importação.
+        """
+        cabecalho, primeira, *_ = self.linhas()
+
+        self.assertEqual(cabecalho[:2], ["Data Inicio", "Data Fim"])
+        self.assertEqual(primeira[:2], ["01/08/2026", "31/08/2026"])
+
+    def test_codigo_do_centro_de_custo_vem_sozinho_na_coluna(self):
+        """Código e descrição em colunas diferentes: uma informação cada."""
+        _, primeira, *_ = self.linhas()
+
+        self.assertEqual(primeira[2], self.cc_ti.codigo)
+        self.assertEqual(primeira[3], self.cc_ti.descricao)
+
+    # -- leitura no Excel pt-BR ------------------------------------------
+    def test_usa_ponto_e_virgula_como_separador(self):
+        texto = montar_csv_rateio(self.fechamento)
+
+        self.assertIn("Data Inicio;Data Fim;Centro de Custo", texto)
+
+    def test_percentual_sai_com_virgula_decimal(self):
+        """`25.00` com separador `;` seria lido como texto e não somaria."""
+        texto = montar_csv_rateio(self.fechamento)
+
+        self.assertIn("25,00", texto)   # 100 km de 400
+        self.assertNotIn("25.00", texto)
+
+    def test_linhas_terminam_em_crlf(self):
+        """RFC 4180 — e é o que o Excel espera."""
+        self.assertIn("\r\n", montar_csv_rateio(self.fechamento))
+
+    def test_resposta_tem_bom_para_o_excel_ler_utf8(self):
+        """
+        Sem o BOM o Excel assume ANSI e "Descrição" vira "DescriÃ§Ã£o". Ele
+        não consulta o charset declarado no cabeçalho HTTP.
+        """
+        resposta = exportar_rateio_csv(self.fechamento)
+
+        self.assertTrue(resposta.content.startswith(b"\xef\xbb\xbf"))
+
+    def test_acentos_sobrevivem_a_ida_e_volta(self):
+        cc = CentroCusto.objects.create(codigo="1099999999", descricao="Manutenção")
+        self.criar_viagem(
+            funcionario=self.funcionario_sem_cc,
+            centro_custo=cc,
+            veiculo=self.strada,
+            data=date(2026, 9, 2),
+            km_inicial=200000,
+            km_final=200050,
+        )
+        fechamento = confirmar_fechamento(date(2026, 9, 1), date(2026, 9, 30))
+
+        conteudo = exportar_rateio_csv(fechamento).content.decode("utf-8-sig")
+
+        self.assertIn("Manutenção", conteudo)
+
+    def test_content_type_e_nome_do_arquivo(self):
+        resposta = exportar_rateio_csv(self.fechamento)
+
+        self.assertEqual(resposta["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("attachment;", resposta["Content-Disposition"])
+        self.assertIn(
+            'filename="rateio_20260801_20260831.csv"',
+            resposta["Content-Disposition"],
+        )
+
+
+class ExportarViagensCsvTest(BaseViagensTest):
+    """O detalhamento, agora em arquivo próprio."""
+
+    def setUp(self):
+        self.criar_viagem(data=date(2026, 8, 3), km_inicial=100000, km_final=100100)
+        self.criar_viagem(
+            funcionario=self.funcionario_inativo,
+            centro_custo=self.cc_ti,
+            veiculo=self.cronos,
+            data=date(2026, 8, 4),
+            km_inicial=105000,
+            km_final=105300,
+        )
+        self.fechamento = confirmar_fechamento(
+            date(2026, 8, 1), date(2026, 8, 31), usuario=self.portaria
+        )
+
+    def test_lista_todas_as_viagens_do_fechamento(self):
+        linhas = list(
+            csv.reader(io.StringIO(montar_csv_viagens(self.fechamento)), delimiter=";")
+        )
+
+        self.assertEqual(len(linhas) - 1, self.fechamento.viagens.count())
+
+    def test_as_viagens_sairam_do_arquivo_de_rateio(self):
+        """
+        Era o mesmo arquivo até agora. Ter as duas tabelas empilhadas é o que
+        impedia a importação no ERP.
+        """
+        rateio = montar_csv_rateio(self.fechamento)
+
+        self.assertNotIn("KM Inicial", rateio)
+        self.assertNotIn(str(self.funcionario), rateio)
+
+    def test_traz_a_placa_do_veiculo(self):
+        conteudo = montar_csv_viagens(self.fechamento)
+
+        self.assertIn(self.strada.placa, conteudo)
+        self.assertIn(self.cronos.placa, conteudo)
+
+    def test_data_em_formato_brasileiro(self):
+        conteudo = montar_csv_viagens(self.fechamento)
+
+        self.assertIn("03/08/2026", conteudo)
+        self.assertIn("04/08/2026", conteudo)
+
+    def test_content_type_e_nome_do_arquivo(self):
+        resposta = exportar_viagens_csv(self.fechamento)
+
+        self.assertEqual(resposta["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn(
+            'filename="viagens_20260801_20260831.csv"',
+            resposta["Content-Disposition"],
+        )
+
+
+@override_settings(STORAGES=STORAGES_DE_TESTE)
+class ExportacaoPelaUrlTest(BaseViagensTest):
+    def setUp(self):
+        self.criar_viagem(data=date(2026, 8, 3), km_inicial=100000, km_final=100100)
+        self.fechamento = confirmar_fechamento(
+            date(2026, 8, 1), date(2026, 8, 31), usuario=self.portaria
+        )
+
+    def test_as_duas_rotas_baixam_csv(self):
+        self.client.force_login(self.financeiro)
+
+        for rota in ["fechamento_exportar", "fechamento_exportar_viagens"]:
+            with self.subTest(rota=rota):
+                resposta = self.client.get(reverse(rota, args=[self.fechamento.pk]))
+
+                self.assertEqual(resposta.status_code, 200)
+                self.assertEqual(resposta["Content-Type"], "text/csv; charset=utf-8")
+
+    def test_as_duas_rotas_exigem_permissao_de_fechamento(self):
+        self.client.force_login(Funcionario.objects.create(username="joao.sem.perfil"))
+
+        for rota in ["fechamento_exportar", "fechamento_exportar_viagens"]:
+            with self.subTest(rota=rota):
+                resposta = self.client.get(reverse(rota, args=[self.fechamento.pk]))
+
+                self.assertNotEqual(resposta.status_code, 200)
+
+    def test_fechamento_inexistente_da_404(self):
+        self.client.force_login(self.financeiro)
+
+        resposta = self.client.get(reverse("fechamento_exportar_viagens", args=[9999]))
+
+        self.assertEqual(resposta.status_code, 404)
+
+
+# =========================================================================
+# 12. Veículo já reservado (BUG corrigido em 08/2026)
+#
+# A tela de reserva manual aceitava reservar um veículo que já tinha reserva
+# pendente no mesmo horário — duas pessoas saíam com o mesmo carro. A regra
+# vive em `ReservaViagem.clean()`, e não no formulário, para valer também no
+# admin e em qualquer `full_clean()`.
+# =========================================================================
+class PeriodosSeSobrepoemTest(TestCase):
+    """A regra de sobreposição, isolada de banco e de modelo."""
+
+    def sobrepoe(self, a_ini, a_fim, b_ini, b_fim) -> bool:
+        return periodos_se_sobrepoem(
+            time.fromisoformat(a_ini) if a_ini else None,
+            time.fromisoformat(a_fim) if a_fim else None,
+            time.fromisoformat(b_ini) if b_ini else None,
+            time.fromisoformat(b_fim) if b_fim else None,
+        )
+
+    def test_um_dentro_do_outro(self):
+        self.assertTrue(self.sobrepoe("09:00", "11:00", "08:00", "12:00"))
+
+    def test_invade_o_inicio(self):
+        self.assertTrue(self.sobrepoe("07:00", "09:00", "08:00", "12:00"))
+
+    def test_invade_o_fim(self):
+        self.assertTrue(self.sobrepoe("11:00", "14:00", "08:00", "12:00"))
+
+    def test_identicos(self):
+        self.assertTrue(self.sobrepoe("08:00", "12:00", "08:00", "12:00"))
+
+    def test_encostados_nao_sobrepoem(self):
+        """
+        08:00–12:00 e 12:00–14:00 se tocam mas não disputam o carro. Recusar
+        isso engessaria o uso normal da frota: o veículo volta e sai de novo.
+        """
+        self.assertFalse(self.sobrepoe("12:00", "14:00", "08:00", "12:00"))
+
+    def test_separados(self):
+        self.assertFalse(self.sobrepoe("14:00", "16:00", "08:00", "12:00"))
+
+    def test_dia_inteiro_conflita_com_qualquer_horario(self):
+        self.assertTrue(self.sobrepoe(None, None, "08:00", "12:00"))
+        self.assertTrue(self.sobrepoe("08:00", "12:00", None, None))
+
+    def test_dois_dias_inteiros_conflitam(self):
+        self.assertTrue(self.sobrepoe(None, None, None, None))
+
+
+@override_settings(STORAGES=STORAGES_DE_TESTE)
+class VeiculoJaReservadoTest(BaseViagensTest):
+    """A regra pela porta da frente: formulário e tela."""
+
+    DATA = "2026-08-20"
+
+    def setUp(self):
+        self.client.force_login(self.portaria)
+        self.existente = ReservaViagem.objects.create(
+            funcionario=self.funcionario,
+            veiculo=self.strada,
+            data=date(2026, 8, 20),
+            hora_inicio=time(8, 0),
+            hora_fim=time(12, 0),
+        )
+
+    def dados(self, **kwargs) -> dict:
+        base = {
+            # Precisa ter centro de custo: o formulário só lista quem pode viajar.
+            "funcionario": self.funcionario.pk,
+            "veiculo": self.strada.pk,
+            "data": self.DATA,
+            "hora_inicio": "09:00",
+            "hora_fim": "11:00",
+            "destino": "Visita",
+        }
+        base.update(kwargs)
+        return base
+
+    def test_horario_sobreposto_e_recusado(self):
+        form = ReservaManualForm(self.dados())
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("veiculo", form.errors)
+
+    def test_a_mensagem_diz_qual_o_conflito(self):
+        """O operador precisa saber o horário ocupado para escolher outro."""
+        form = ReservaManualForm(self.dados())
+        form.is_valid()
+
+        mensagem = " ".join(form.errors["veiculo"])
+        self.assertIn(self.strada.placa, mensagem)
+        self.assertIn("08:00", mensagem)
+        self.assertIn("12:00", mensagem)
+
+    def test_horario_encostado_e_aceito(self):
+        form = ReservaManualForm(self.dados(hora_inicio="12:00", hora_fim="14:00"))
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_horario_livre_e_aceito(self):
+        form = ReservaManualForm(self.dados(hora_inicio="14:00", hora_fim="16:00"))
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_outro_veiculo_no_mesmo_horario_e_aceito(self):
+        form = ReservaManualForm(self.dados(veiculo=self.cronos.pk))
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_outro_dia_no_mesmo_horario_e_aceito(self):
+        form = ReservaManualForm(self.dados(data="2026-08-21"))
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_dia_inteiro_conflita_com_reserva_existente(self):
+        form = ReservaManualForm(self.dados(hora_inicio="", hora_fim=""))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("veiculo", form.errors)
+
+    def test_reserva_cancelada_libera_o_horario(self):
+        """Só reserva pendente ocupa o veículo."""
+        self.existente.status = ReservaViagem.Status.CANCELADA
+        self.existente.save()
+
+        form = ReservaManualForm(self.dados())
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_reserva_lancada_libera_o_horario(self):
+        """Lançada já virou viagem — o horário não está mais reservado."""
+        self.existente.status = ReservaViagem.Status.LANCADA
+        self.existente.save()
+
+        form = ReservaManualForm(self.dados())
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_a_tela_nao_cria_a_reserva_duplicada(self):
+        """Regressão do bug, pela view."""
+        resposta = self.client.post(reverse("nova_reserva"), self.dados())
+
+        self.assertEqual(resposta.status_code, 200)   # reexibe o form
+        self.assertEqual(ReservaViagem.objects.count(), 1)
+
+    def test_a_regra_vale_no_full_clean_e_nao_so_no_formulario(self):
+        """
+        Vive em `Model.clean()` de propósito: assim o admin e qualquer
+        script que chame `full_clean()` também são barrados.
+        """
+        reserva = ReservaViagem(
+            funcionario=self.funcionario_sem_cc,
+            veiculo=self.strada,
+            data=date(2026, 8, 20),
+            hora_inicio=time(9, 0),
+            hora_fim=time(11, 0),
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            reserva.full_clean()
+
+        self.assertIn("veiculo", ctx.exception.message_dict)
+
+    def test_editar_a_propria_reserva_nao_conflita_consigo_mesma(self):
+        self.existente.destino = "Novo destino"
+
+        self.existente.full_clean()   # não deve levantar
+
+    def test_o_sync_nao_e_barrado_pela_regra(self):
+        """
+        A importação usa `update_or_create` e não chama `full_clean()` — de
+        propósito. O Outlook é a fonte da verdade do que veio dele, e a
+        própria caixa de recurso já recusa reserva sobreposta na origem.
+        """
+        self.strada.email_recurso = "stradarln1j19@puflexivel.com.br"
+        self.strada.save()
+
+        resumo = sincronizar_reservas(
+            eventos=[
+                {
+                    "id_externo": "evento-sobreposto",
+                    "email_recurso": self.strada.email_recurso,
+                    "solicitante_nome": "Fulano",
+                    "solicitante_email": "fulano@grupoflexivel.com.br",
+                    "data": date(2026, 8, 20),
+                    "hora_inicio": time(9, 0),
+                    "hora_fim": time(11, 0),
+                    "cancelado": False,
+                }
+            ],
+            caixas_consultadas={self.strada.email_recurso},
+            data_inicio=date(2026, 8, 1),
+            data_fim=date(2026, 8, 31),
+        )
+
+        self.assertEqual(resumo["criadas"], 1)

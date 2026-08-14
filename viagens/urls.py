@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     AgendaView,
+    FechamentoExportarViagensView,
     FechamentoExportarView,
     FechamentoView,
     HistoricoFechamentosView,
@@ -41,5 +42,10 @@ urlpatterns = [
         "fechamentos/<int:pk>/exportar/",
         FechamentoExportarView.as_view(),
         name="fechamento_exportar",
+    ),
+    path(
+        "fechamentos/<int:pk>/exportar/viagens/",
+        FechamentoExportarViagensView.as_view(),
+        name="fechamento_exportar_viagens",
     ),
 ]

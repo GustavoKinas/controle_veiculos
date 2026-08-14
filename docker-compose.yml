@@ -27,7 +27,7 @@ services:
     image: nginx:stable
     container_name: controle_veiculos_nginx
     ports:
-      - "5008:80"
+      - "5009:80"
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media

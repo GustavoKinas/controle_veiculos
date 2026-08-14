@@ -47,7 +47,7 @@ As permissões por trás disso:
 |---|---|
 | `viagens.lancar_viagem` | agenda, lançar viagem, lançar reserva, registrar chegada |
 | `viagens.gerenciar_reservas` | criar reserva manual, botão Sincronizar |
-| `viagens.realizar_fechamento` | fechamento, histórico, exportação em Excel |
+| `viagens.realizar_fechamento` | fechamento, histórico, exportação em CSV |
 | `colaboradores.view_funcionario` | lista de colaboradores |
 | `colaboradores.add/change_funcionario` | cadastrar e inativar colaborador |
 
@@ -390,10 +390,21 @@ hora, caixa de recurso fora do ar.
 | Campo | Obrigatório |
 |---|---|
 | Colaborador | sim — só aparecem ativos e com centro de custo |
-| Veículo | sim — só veículos ativos |
+| Veículo | sim — só veículos ativos **e livres no horário** |
 | Data | sim |
 | Horários | os dois, ou nenhum (reserva de dia inteiro) |
 | Destino | não |
+
+**O sistema recusa reservar um veículo já reservado.** Se o carro tiver
+reserva pendente que se sobreponha ao horário pedido, o formulário acusa e
+diz qual é o conflito ("RLN1J19 já tem reserva pendente em 20/08/2026 das
+08:00 às 12:00"). Detalhes:
+
+- horários que apenas **se encostam** são permitidos — 08:00–12:00 e
+  12:00–14:00 não disputam o carro;
+- reserva **cancelada** ou **já lançada** não ocupa o veículo: o horário
+  volta a ficar livre;
+- reserva de **dia inteiro** conflita com qualquer outra daquela data.
 
 Reserva criada assim **nunca é cancelada pelo sync**, porque não veio do
 Outlook.
@@ -468,8 +479,26 @@ andamento no período, a tela avisa.
 ### 7.2 Consultar e exportar
 
 **`/viagens/fechamentos/`** — histórico paginado, com o rateio por centro de
-custo de cada fechamento e o link de **exportação em Excel** (resumo +
-detalhamento das viagens).
+custo de cada fechamento e **dois botões de exportação**:
+
+| Botão | Arquivo | Para quê |
+|---|---|---|
+| 📊 **Rateio (CSV)** | `rateio_AAAAMMDD_AAAAMMDD.csv` | importação no ERP |
+| 🚗 **Viagens (CSV)** | `viagens_AAAAMMDD_AAAAMMDD.csv` | conferência do detalhamento |
+
+São arquivos separados de propósito. O do rateio é uma **tabela pura** — uma
+linha de cabeçalho e uma linha por centro de custo, cada coluna com um único
+tipo de informação. Não tem título, linha em branco nem linha de total: numa
+importação, "Total" na coluna Centro de Custo entraria como se fosse mais um
+centro de custo. **O total é de quem soma a coluna.**
+
+As datas do período vêm em coluna (`Data Inicio`, `Data Fim`), então cada
+linha se basta sozinha na importação.
+
+Os dois abrem direto no Excel em português: usam `;` como separador, vírgula
+decimal e vêm com BOM, que é o que faz o Excel reconhecer os acentos. Se
+abrir com acento quebrado, quem está lendo não é o Excel — importe como
+UTF-8.
 
 ### 7.3 O que o fechamento congela
 
@@ -555,7 +584,8 @@ v.save()
 | `/viagens/lancar/` | lançar viagem sem reserva | Portaria |
 | `/viagens/fechamento/` | fechamento e rateio | Financeiro, Portaria |
 | `/viagens/fechamentos/` | histórico | Financeiro, Portaria |
-| `/viagens/fechamentos/<id>/exportar/` | Excel do fechamento | Financeiro, Portaria |
+| `/viagens/fechamentos/<id>/exportar/` | CSV do rateio (ERP) | Financeiro, Portaria |
+| `/viagens/fechamentos/<id>/exportar/viagens/` | CSV das viagens | Financeiro, Portaria |
 | `/colaboradores/` | cadastrar / inativar | Portaria |
 | `/colaboradores/cadastrados/` | lista | Portaria |
 | `/admin/` | administração | **só administrador** |
@@ -616,6 +646,8 @@ python manage.py configurar_perfis --listar
 | Colaborador não aparece no formulário | inativo ou sem centro de custo | corrija em `/colaboradores/` |
 | "A quilometragem inicial não pode ser menor que…" | hodômetro do veículo já passou disso | confira o `km_atual` e as viagens anteriores |
 | Fechamento vazio | não há viagem concluída e aberta no período | viagem em andamento não entra |
+| "já tem reserva pendente em…" ao criar reserva | o veículo está ocupado naquele horário | outro veículo, outro horário, ou cancele a reserva existente |
+| ERP recusa o CSV importado | pode estar usando o arquivo de viagens no lugar do de rateio | o do ERP é o botão **Rateio (CSV)** |
 | `permission denied to create database` ao rodar testes | usuário do banco sem `CREATEDB` | `psql -U postgres -c "ALTER ROLE controle_veiculos CREATEDB;"` |
 
 ---

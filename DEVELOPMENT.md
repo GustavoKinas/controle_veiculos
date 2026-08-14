@@ -97,22 +97,48 @@ por um campo de busca (JS puro, sem dependências novas): digitar esconde as
 (select2/jQuery não estão carregados no projeto) e por ser suficiente para a
 escala esperada (algumas centenas de colaboradores).
 
-### 3.7 Exportação de fechamento em Excel (`viagens/exports.py`)
-`exportar_fechamento_excel(fechamento)` gera um `.xlsx` com **openpyxl** (nova
-dependência, ver `requirements.txt`) contendo duas abas: **"Resumo do Rateio"**
-(por Centro de Custo, igual ao que é exibido na tela) e **"Viagens"**
-(detalhamento de cada viagem incluída naquele fechamento). Reaproveitado em
-dois pontos: (1) banner exibido em `/viagens/fechamento/` logo após confirmar
-um novo fechamento (via redirect com `?concluido=<id>`), e (2) botão em cada
-linha de `/viagens/fechamentos/`.
+### 3.7 Exportação em CSV (`viagens/exports.py`)
+**Dois arquivos, dois botões:** `exportar_rateio_csv` (o rateio por centro de
+custo) e `exportar_viagens_csv` (o detalhamento). Ambos aparecem no banner de
+`/viagens/fechamento/?concluido=<id>` e em cada linha de
+`/viagens/fechamentos/`.
+
+A geração do texto (`montar_csv_rateio`, `montar_csv_viagens`) é separada da
+resposta HTTP, o que permite conferi-la em teste sem fabricar request nem
+decodificar `HttpResponse`.
+
+**O rateio é importado no ERP, e isso define a forma do arquivo:** uma linha
+de cabeçalho e linhas de dado, cada coluna com um único tipo de informação.
+Sem título, sem linha em branco, **sem linha de total** — numa importação,
+"Total" na coluna Centro de Custo entra como se fosse mais um centro. O total
+é de quem soma a coluna.
+
+Foi por essa exigência que as duas tabelas se separaram: empilhadas no mesmo
+arquivo (como eram as duas abas do `.xlsx`, e depois os dois blocos do
+primeiro CSV), o arquivo deixava de ser uma tabela.
+
+As datas do período viajam em **coluna**, não num título no topo: é o que
+mantém cada linha auto-suficiente na importação.
+
+**Era `.xlsx` com openpyxl até 08/2026.** A troca eliminou a única
+dependência binária do projeto — `openpyxl` saiu do `requirements.txt`.
+
+**Três decisões que o formato exige.** O destino do arquivo é o Excel em
+português, e um CSV ingênuo abre ilegível nele:
+
+| Escolha | Sem ela |
+|---|---|
+| `;` como separador | a vírgula é separador decimal no pt-BR; com `,` tudo cai numa coluna só |
+| UTF-8 **com BOM** (`utf-8-sig`) | o Excel assume ANSI e "Descrição" vira "DescriÃ§Ã£o" — ele não lê o charset do cabeçalho HTTP |
+| decimal com vírgula (`25,00`) | lido como texto; a coluna não soma |
+
+Linhas terminam em `\r\n` (RFC 4180).
 
 **Performance:** as queries usam `select_related` (evita N+1 em
-`centro_custo`/`funcionario`); o workbook é gerado em memória (`io.BytesIO`) no
-modo padrão do openpyxl (não `write_only`) para permitir autofit de colunas —
-adequado ao volume real (um fechamento tem, tipicamente, dezenas a algumas
-centenas de viagens). Note que `.xlsx` é um contêiner ZIP, então não há streaming
-byte-a-byte real possível; o ganho de performance que importa aqui é evitar
-N+1 queries, não streaming da resposta.
+`centro_custo`/`funcionario`) e o texto é montado em memória (`io.StringIO`).
+Adequado ao volume real — um fechamento tem, tipicamente, dezenas a algumas
+centenas de viagens. Ao contrário do `.xlsx` (contêiner ZIP), CSV *permitiria*
+streaming com `StreamingHttpResponse`; não vale a complexidade nesta escala.
 
 ### 3.8 Quilometragem validada no modelo (`Viagem.clean`)
 As regras de hodômetro vivem em `services.validar_quilometragem` e são
@@ -164,6 +190,42 @@ uma vez. O `clean()` usa `ValidationError.update_error_dict()`, o mesmo helper
 que o `Model.full_clean()` usa internamente para juntar os erros de
 `clean_fields()`, `clean()` e `validate_constraints()`.
 
+### 3.9 Veículo não pode ser reservado duas vezes (`ReservaViagem.clean`)
+**Bug corrigido em 08/2026.** A tela de reserva manual aceitava reservar um
+veículo que já tinha reserva **pendente** no mesmo horário — duas pessoas
+saíam com o mesmo carro.
+
+A regra vive em `ReservaViagem.clean()`, não no formulário, para valer também
+no admin e em qualquer `full_clean()`. A decisão de sobreposição está em
+`periodos_se_sobrepoem()`, função de módulo, testável com pares de horários
+soltos, sem montar reserva nem tocar no banco.
+
+O que ocupa o veículo:
+
+| Situação | Bloqueia? |
+|---|---|
+| reserva **pendente** que se sobrepõe | sim |
+| reserva **cancelada** | não — o horário está livre |
+| reserva **lançada** | não — já virou viagem |
+| períodos que apenas se encostam (08–12 e 12–14) | não |
+| reserva de **dia inteiro** (horas nulas) | conflita com qualquer outra do dia |
+| mesmo horário, **outro veículo** ou **outro dia** | não |
+
+A comparação é estrita (`<`, não `<=`): 08:00–12:00 e 12:00–14:00 se tocam
+mas não disputam o carro, e recusar isso engessaria o uso normal da frota.
+
+**A importação do Outlook não é barrada por esta regra** — o sync usa
+`update_or_create`, que não chama `full_clean()`. É proposital: o Outlook é a
+fonte da verdade para o que veio dele, e a própria caixa de recurso já recusa
+reserva sobreposta na origem. Há teste garantindo que isso continue assim.
+
+**Camada 3 ausente, de propósito declarado.** Ao contrário da quilometragem,
+não há constraint de banco: barrar sobreposição em SQL exigiria uma
+`ExclusionConstraint` com `btree_gist` e uma coluna de intervalo, mudando o
+modelo por causa de uma janela de corrida estreita (dois envios simultâneos
+para o mesmo veículo e horário). Se a portaria passar a ter vários operadores
+lançando em paralelo, é aqui que se mexe.
+
 O hodômetro (`Veiculo.km_atual`) é recalculado por
 `services.atualizar_km_veiculo` no `save()` da viagem e num `post_delete`.
 É um recompute (`Max(km_final)`) e não um "só sobe": editar uma viagem para
@@ -207,7 +269,7 @@ controle_veiculos/                 # raiz (contém manage.py)
     ├── forms.py                  # LancamentoViagemForm, FechamentoFiltroForm
     ├── services.py               # validar_quilometragem, atualizar_km_veiculo,
     │                             #   calcular_rateio, confirmar_fechamento
-    ├── exports.py                # (NOVO) exportar_fechamento_excel (openpyxl)
+    ├── exports.py                # (NOVO) exportar_fechamento_csv
     ├── views.py                  # LancarViagem, Fechamento, FechamentoExportar, HistoricoFechamentos
     ├── urls.py
     ├── admin.py
@@ -259,7 +321,8 @@ controle_veiculos/                 # raiz (contém manage.py)
 | `/viagens/chegada/<id>/` | `registrar_chegada` | Conclui uma viagem em andamento com o KM de retorno |
 | `/viagens/fechamento/` | `fechamento` | Filtro de período → prévia do rateio → confirmar → link de exportação |
 | `/viagens/fechamentos/` | `historico_fechamentos` | Fechamentos já realizados, cada um com botão de exportação |
-| `/viagens/fechamentos/<id>/exportar/` | `fechamento_exportar` | Download do .xlsx de um fechamento |
+| `/viagens/fechamentos/<id>/exportar/` | `fechamento_exportar` | Download do rateio em .csv (arquivo do ERP) |
+| `/viagens/fechamentos/<id>/exportar/viagens/` | `fechamento_exportar_viagens` | Download do detalhamento das viagens em .csv |
 | `/colaboradores/` | `funcionarios` | Cadastrar / inativar colaborador |
 | `/colaboradores/cadastrados/` | `funcionarios_cadastrados` | Listagem |
 | `/admin/` | — | Django admin |
@@ -312,15 +375,18 @@ Validado nesta implementação (com SQLite apenas para teste; produção é Post
 - **POSTs**: cadastro de colaborador gera username (`carlos.souza`) com senha
   inutilizável; lançamento cria a viagem com `lancada_por=portaria`; viagem com
   `km_final < km_inicial` é rejeitada.
-- **Exportação Excel** (`exports.py`): fechamento com Centro Alpha 80km/40% e
-  Centro Beta 120km/60% gera `.xlsx` com as abas "Resumo do Rateio" e
-  "Viagens"; reabrindo o arquivo com `openpyxl.load_workbook`, os valores
-  batem exatamente com o rateio calculado. Rota de download exige login (302
-  se anônimo) e retorna 404 para um fechamento inexistente.
+- **Exportação CSV** (`exports.py`): o arquivo de rateio é uma tabela pura —
+  o teste conta as linhas (cabeçalho + uma por centro de custo) e recusa
+  título, linha em branco e linha de total, que numa importação virariam
+  registro fantasma. Relendo o texto com o módulo `csv`, os valores batem com
+  o rateio calculado. O arquivo começa com BOM, usa `;` e escreve os
+  percentuais com vírgula decimal — as três condições para abrir legível no
+  Excel pt-BR. As duas rotas exigem a permissão de fechamento e devolvem 404
+  para um fechamento inexistente.
 - **Busca de colaborador e link de exportação**: confirmado via HTML
   renderizado que `funcionario-busca` aparece em `lancar_viagem.html`, que o
-  banner "Baixar Excel" aparece em `/viagens/fechamento/?concluido=<id>`, e
-  que o botão "Exportar Excel" aparece em cada linha de
+  banner "Baixar CSV" aparece em `/viagens/fechamento/?concluido=<id>`, e
+  que o botão "Exportar CSV" aparece em cada linha de
   `/viagens/fechamentos/`.
 
 ---
@@ -339,4 +405,4 @@ Validado nesta implementação (com SQLite apenas para teste; produção é Post
 - Vínculo com veículo (placa) na viagem, se necessário.
 - Completar `viagens/tests.py` (o esqueleto existe; a maioria dos casos ainda
   está como `skipTest`). Roteiro e exercícios em [ESTUDO.md](ESTUDO.md).
-- Relatório/exportação em PDF do fechamento (Excel já implementado).
+- Relatório/exportação em PDF do fechamento (CSV já implementado).

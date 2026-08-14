@@ -17,7 +17,7 @@ from colaboradores.permissoes import (
     PERM_REALIZAR_FECHAMENTO,
 )
 
-from .exports import exportar_fechamento_excel
+from .exports import exportar_rateio_csv, exportar_viagens_csv
 from .forms import (
     FechamentoFiltroForm,
     LancamentoDeReservaForm,
@@ -436,13 +436,30 @@ class FechamentoView(PerfilRequeridoMixin, View):
 
 
 class FechamentoExportarView(PerfilRequeridoMixin, View):
-    """Download do detalhamento (resumo + viagens) de um fechamento em Excel."""
+    """
+    Download do rateio por centro de custo, em CSV.
+
+    É o arquivo destinado à importação no ERP: uma tabela e nada mais. O
+    detalhamento das viagens sai em arquivo separado
+    (`FechamentoExportarViagensView`) justamente para que este continue sendo
+    uma tabela só.
+    """
 
     permissao_requerida = PERM_REALIZAR_FECHAMENTO
 
     def get(self, request: HttpRequest, pk: int) -> HttpResponse:
         fechamento = get_object_or_404(Fechamento, pk=pk)
-        return exportar_fechamento_excel(fechamento)
+        return exportar_rateio_csv(fechamento)
+
+
+class FechamentoExportarViagensView(PerfilRequeridoMixin, View):
+    """Download do detalhamento das viagens de um fechamento, em CSV."""
+
+    permissao_requerida = PERM_REALIZAR_FECHAMENTO
+
+    def get(self, request: HttpRequest, pk: int) -> HttpResponse:
+        fechamento = get_object_or_404(Fechamento, pk=pk)
+        return exportar_viagens_csv(fechamento)
 
 
 class HistoricoFechamentosView(PerfilRequeridoMixin, ListView):

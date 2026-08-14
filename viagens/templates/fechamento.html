@@ -23,7 +23,13 @@
       {{ fechamento_concluido.data_fim|date:"d/m/Y" }} concluído —
       <strong>{{ fechamento_concluido.total_km }} km</strong> processados.
     </span>
-    <a class="btn btn-sm" href="{% url 'fechamento_exportar' fechamento_concluido.pk %}">📊 Baixar Excel</a>
+    {% comment %}
+      Dois arquivos, dois botões: o rateio é a tabela que vai para o ERP e o
+      detalhamento das viagens é conferência. Juntá-los num arquivo só faria
+      o do ERP deixar de ser uma tabela.
+    {% endcomment %}
+    <a class="btn btn-sm" href="{% url 'fechamento_exportar' fechamento_concluido.pk %}">📊 Rateio (CSV)</a>
+    <a class="btn btn-sm btn-outline" href="{% url 'fechamento_exportar_viagens' fechamento_concluido.pk %}">🚗 Viagens (CSV)</a>
   </div>
 {% endif %}
 

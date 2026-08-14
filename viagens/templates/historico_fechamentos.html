@@ -35,8 +35,10 @@
             </div>
           </div>
           <div class="collapse-content">
-            <div class="mb-3">
-              <a class="btn btn-sm btn-outline" href="{% url 'fechamento_exportar' fechamento.pk %}">📊 Exportar Excel</a>
+            <div class="mb-3 flex flex-wrap gap-2">
+              {# Rateio = arquivo do ERP. Viagens = detalhamento para conferência. #}
+              <a class="btn btn-sm btn-outline" href="{% url 'fechamento_exportar' fechamento.pk %}">📊 Rateio (CSV)</a>
+              <a class="btn btn-sm btn-outline" href="{% url 'fechamento_exportar_viagens' fechamento.pk %}">🚗 Viagens (CSV)</a>
             </div>
             <div class="overflow-x-auto">
               <table class="table table-sm">

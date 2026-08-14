@@ -300,6 +300,35 @@ def _recalcular_km_ao_excluir_viagem(sender, instance, **kwargs):
     atualizar_km_veiculo(instance.veiculo)
 
 
+def periodos_se_sobrepoem(inicio_a, fim_a, inicio_b, fim_b) -> bool:
+    """
+    Dois períodos do **mesmo dia** ocupam o veículo ao mesmo tempo?
+
+    Reserva de dia inteiro tem as duas horas nulas e, por definição, toma o
+    veículo o dia todo — então conflita com qualquer outra daquela data.
+
+    A comparação é estrita (`<`, não `<=`) de propósito: 08:00–12:00 e
+    12:00–14:00 se encostam, não se sobrepõem. O carro volta e sai de novo, e
+    recusar isso engessaria o uso normal da frota.
+
+    Função de módulo, e não método, para poder ser testada com pares de
+    horários soltos — sem montar reserva nem tocar no banco.
+    """
+    if inicio_a is None or fim_a is None or inicio_b is None or fim_b is None:
+        # Pelo menos um dos dois é dia inteiro (ou está pela metade, e aí o
+        # formulário já vai recusar por outro motivo).
+        return True
+
+    return inicio_a < fim_b and inicio_b < fim_a
+
+
+def _descrever_periodo(reserva) -> str:
+    """"das 08:00 às 12:00" ou "o dia inteiro", para a mensagem de erro."""
+    if reserva.hora_inicio is None or reserva.hora_fim is None:
+        return "o dia inteiro"
+    return f"das {reserva.hora_inicio:%H:%M} às {reserva.hora_fim:%H:%M}"
+
+
 class ReservaViagem(models.Model):
     """
     Pré-cadastro de viagem: a *intenção* de usar um veículo numa data.
@@ -409,12 +438,13 @@ class ReservaViagem(models.Model):
 
     def clean(self) -> None:
         """
-        Coerência do horário da reserva.
+        Coerência do horário e disponibilidade do veículo.
 
         Só vale para o cadastro manual: o sync usa `update_or_create`, que não
         chama `full_clean()`. É de propósito — o Outlook é a fonte da verdade
         para o que veio dele, e um evento estranho na agenda não pode derrubar
-        a importação inteira.
+        a importação inteira. Além disso, a caixa de recurso do Outlook já
+        recusa reserva sobreposta na origem.
 
         Todo teste de campo é precedido de `is not None`: `clean()` roda mesmo
         quando a validação de campo já falhou, e aí o atributo chega vazio.
@@ -434,6 +464,47 @@ class ReservaViagem(models.Model):
             raise ValidationError(
                 {"veiculo": "Este veículo está inativo e não aceita novas reservas."}
             )
+
+        self._validar_veiculo_livre()
+
+    def _validar_veiculo_livre(self) -> None:
+        """
+        Recusa a reserva se o veículo já tem outra **pendente** que se sobrepõe.
+
+        Só reserva pendente ocupa o veículo: cancelada não vale, e lançada já
+        virou viagem — nos dois casos o horário está livre para ser reservado
+        de novo.
+
+        A consulta traz as pendentes do dia e a sobreposição é decidida em
+        Python. Fazê-lo em SQL exigiria tratar os nulos de dia inteiro dentro
+        da query, e um veículo tem poucas reservas por dia — a clareza vale
+        mais que a query economizada.
+        """
+        if self.veiculo_id is None or self.data is None:
+            return
+
+        candidatas = ReservaViagem.objects.filter(
+            veiculo_id=self.veiculo_id,
+            data=self.data,
+            status=self.Status.PENDENTE,
+        )
+        if self.pk:
+            # Editar uma reserva não pode fazê-la conflitar consigo mesma.
+            candidatas = candidatas.exclude(pk=self.pk)
+
+        for outra in candidatas.only("hora_inicio", "hora_fim"):
+            if periodos_se_sobrepoem(
+                self.hora_inicio, self.hora_fim, outra.hora_inicio, outra.hora_fim
+            ):
+                raise ValidationError(
+                    {
+                        "veiculo": (
+                            f"{self.veiculo.placa} já tem reserva pendente em "
+                            f"{self.data:%d/%m/%Y} {_descrever_periodo(outra)}. "
+                            "Escolha outro veículo ou outro horário."
+                        )
+                    }
+                )
 
     @property
     def pendente(self) -> bool:
