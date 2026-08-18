@@ -27,7 +27,7 @@ nginx, sem os arquivos estáticos e sem os cabeçalhos de proxy.
 
 1. [Instalar o Docker](#1-instalar-o-docker)
 2. [Clonar o repositório](#2-clonar-o-repositório)
-3. [Colocar o `.env` no servidor](#3-colocar-o-env-no-servidor) ← **os ajustes obrigatórios estão aqui**
+3. [Colocar os arquivos que não vêm no clone](#3-colocar-os-arquivos-que-não-vêm-no-clone) ← **`.env` + CSVs; os ajustes obrigatórios estão aqui**
 4. [Subir os containers](#4-subir-os-containers)
 5. [Carregar os cadastros base](#5-carregar-os-cadastros-base)
 6. [Criar os usuários](#6-criar-os-usuários)
@@ -84,12 +84,31 @@ cd /opt/controle_veiculos
 Todos os comandos deste guia rodam a partir desse diretório — é onde está o
 `docker-compose.yml`.
 
+`/opt/controle_veiculos` é sugestão, não exigência. Clonando em outro lugar
+(`~/controle_veiculos`, por exemplo), troque o caminho em todos os `cd` deste
+guia; nada mais muda, porque o resto dos comandos é relativo ao diretório do
+`docker-compose.yml`.
+
 ---
 
-## 3. Colocar o `.env` no servidor
+## 3. Colocar os arquivos que não vêm no clone
 
-O `.env` está no `.gitignore` e **não vem no clone**, de propósito. Transfira o
-seu por FTP/SCP para `/opt/controle_veiculos/.env` e proteja o arquivo:
+Três arquivos ficam de fora do repositório de propósito e precisam ser
+transferidos à mão por FTP/SCP/WinSCP. **Todos os três são necessários: sem o
+`.env` a aplicação não sobe, e sem os CSVs o passo 5 não roda.**
+
+| Arquivo | Destino | Por que está fora do repositório |
+|---|---|---|
+| `.env` | raiz do projeto | segredos: chave do Django, senhas, credencial do Graph |
+| `cc.csv` | qualquer lugar do servidor | centros de custo reais |
+| `funcionarios_total_com_email.csv` | qualquer lugar do servidor | dados pessoais de colaboradores |
+
+Os dois CSVs vivem em `colaboradores/management/commands/` na máquina de quem
+importa. A regra `*.csv` do `.gitignore` os exclui — copiar a pasta do
+repositório do GitHub **não** os traz junto. O passo 5 explica como colocá-los
+dentro do container.
+
+Proteja o `.env` depois de transferir:
 
 ```bash
 chmod 600 .env
@@ -178,7 +197,46 @@ faltando no `requirements.txt` falha aqui, e não em produção.
 
 ## 5. Carregar os cadastros base
 
-O banco sobe **vazio**. A ordem importa, cada passo depende do anterior:
+O banco sobe **vazio**.
+
+### 5.0. Colocar os CSVs dentro do container
+
+O serviço `web` **não** monta o diretório do projeto: no `docker-compose.yml`
+só há os volumes nomeados `static_volume` e `media_volume`. Arquivo copiado
+para o host por WinSCP/SCP, portanto, continua invisível de dentro do
+container — e a imagem também não os tem, porque o `COPY . /app/` do
+`Dockerfile` levou o contexto do clone, onde o `.gitignore` já os havia
+excluído.
+
+Copie os dois para dentro do container em execução, preservando o caminho
+relativo — assim os comandos abaixo funcionam sem adaptação:
+
+```bash
+docker compose cp cc.csv \
+  web:/app/colaboradores/management/commands/cc.csv
+
+docker compose cp funcionarios_total_com_email.csv \
+  web:/app/colaboradores/management/commands/funcionarios_total_com_email.csv
+```
+
+Ajuste o lado esquerdo para onde os arquivos caíram no host. Não é preciso
+rebuildar nem reiniciar: o `cp` grava na camada gravável do container já de
+pé. Em compensação, um `docker compose up -d --build` futuro recria o
+container e os CSVs somem — o que não é problema, já que servem apenas a esta
+importação única.
+
+Os arquivos são editados no Windows: normalize o fim de linha antes de
+importar, ou o CRLF entra no valor da última coluna.
+
+```bash
+docker compose exec web sh -c \
+  "sed -i 's/\r\$//' colaboradores/management/commands/*.csv && \
+   ls -la colaboradores/management/commands/*.csv"
+```
+
+### 5.1 a 5.3. Importar
+
+A ordem importa, cada passo depende do anterior:
 
 ```bash
 # 1. Unidades fabris. NÃO existe comando para isto, e sem elas o passo 3 pula
@@ -203,6 +261,54 @@ mudar, confira os valores da coluna `unidade_fabril` antes de importar.
 O e-mail do colaborador é a **chave de junção com o Outlook**: quem estiver
 sem e-mail aparece nas reservas importadas como "não identificado", e o
 operador escolhe a pessoa na hora de lançar.
+
+### Como ler o rodapé do `cadastro_funcionarios`
+
+```
+cadastrados                                   187
+  já existiam                                   0
+  com erro (não cadastrados)                    0
+  — destes, sem e-mail                         51
+  — destes, sem centro de custo                28
+  — destes, com centro de custo desconhecido    0
+```
+
+⚠️ As três linhas com travessão ficam abaixo de "com erro", mas **não são um
+recorte dos erros — são um recorte dos cadastrados**. No exemplo: 187 pessoas
+entraram, e dentre elas 51 estão sem e-mail e 28 sem centro de custo. Ninguém
+ficou de fora.
+
+Os dois campos são opcionais de propósito: quem trabalha na produção não
+reserva carro. Cada ausência custa uma coisa, e ambas se resolvem depois pelo
+`/admin`, sem reimportar:
+
+| Ausência | Consequência |
+|---|---|
+| sem e-mail | não é reconhecido nas reservas do Outlook; o operador escolhe a pessoa ao lançar |
+| sem centro de custo | não aparece no `<select>` da tela de lançamento — não há para onde ratear o combustível |
+| centro de custo desconhecido | **este merece atenção**: o código veio no CSV mas não existe no `cc.csv`. Espera-se `0` |
+
+Para conferir quem ficou incompleto:
+
+```bash
+docker compose exec web python manage.py shell -c "
+from colaboradores.models import Funcionario
+print('SEM E-MAIL:')
+for f in Funcionario.objects.filter(email='').order_by('nome'):
+    print(' ', f.nome, '|', f.unidade_fabril)
+print('SEM CENTRO DE CUSTO:')
+for f in Funcionario.objects.filter(centro_custo__isnull=True).order_by('nome'):
+    print(' ', f.nome, '|', f.unidade_fabril)
+"
+```
+
+### Apague os CSVs do servidor
+
+Cumprida a importação, eles são só dados pessoais parados em disco:
+
+```bash
+rm cc.csv funcionarios_total_com_email.csv
+```
 
 ---
 
@@ -330,7 +436,7 @@ Guia de sincronização pelo shell: [`SINCRONIZACAO.md`](SINCRONIZACAO.md).
 ### Atualizar a aplicação
 
 ```bash
-cd /opt/controle_veiculos
+cd /opt/controle_veiculos        # ou onde você clonou
 git pull
 docker compose up -d --build
 docker compose logs -f web
@@ -387,6 +493,8 @@ docker compose logs --tail=40 web
 | `ModuleNotFoundError` | dependência ausente do `requirements.txt` | acrescente e `docker compose build` |
 | `exec /entrypoint.sh: no such file or directory` | arquivo salvo com CRLF | o Dockerfile já remove com `sed` |
 | `cadastro_funcionarios` diz `0 cadastrados` | unidades fabris não existem | passo 5.1 |
+| `No such file or directory` num dos CSVs | o `.gitignore` os exclui: não vieram no clone, nem na imagem | passo 5.0 |
+| `cadastro_centro_custo` importa 0 linhas | CSV salvo no Windows, cabeçalho com CRLF | o `sed` do passo 5.0 |
 | `Nenhum veículo ativo com caixa de recurso` | veículo sem `email_recurso` | passo 7 |
 | `scheduler` termina com código 1 | **leia a linha ACIMA do aviso** — ela traz a causa | `docker compose logs --tail=40 scheduler` |
 | `falhou: <caixa> — 403` | aplicação sem permissão naquela caixa no Azure | as demais caixas seguem importando |

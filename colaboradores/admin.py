@@ -6,8 +6,8 @@ from .models import CentroCusto, Funcionario, UnidadeFabril
 
 @admin.register(Funcionario)
 class FuncionarioAdmin(UserAdmin):
-    list_display = ("username", "nome", "centro_custo", "unidade_fabril", "ativo", "is_staff")
-    list_filter = ("ativo", "is_staff", "is_superuser", "centro_custo", "unidade_fabril")
+    list_display = ("username", "nome", "centro_custo", "unidade_fabril", "ativo", "is_staff","email")
+    list_filter = ("ativo", "is_staff", "is_superuser", "centro_custo", "unidade_fabril","email")
     search_fields = ("username", "nome", "email")
     ordering = ("nome",)
 
