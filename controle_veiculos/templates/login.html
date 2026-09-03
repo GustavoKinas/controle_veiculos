@@ -3,84 +3,97 @@
 
 {% block title %}Entrar — Controle de Veículos{% endblock %}
 
-{% block page_header %}{% endblock %}
+{% block meta_description %}
+<meta name="description" content="Acesso ao sistema interno de controle de veículos do Grupo Flexível." />
+{% endblock %}
 
-{% block content %}
-<div class="flex min-h-[70vh] items-center justify-center">
-  <div class="w-full max-w-md">
-    <!-- Cabeçalho / marca -->
-    <div class="mb-6 text-center">
-      <img src="{% static 'logo.png' %}" alt="Logo" class="mx-auto h-16 w-auto drop-shadow" />
-      <h1 class="mt-4 text-3xl font-extrabold text-white drop-shadow">Controle de Veículos</h1>
-      <p class="mt-1 text-sm text-white/80">Acesse o painel para lançar viagens e fechar períodos.</p>
-    </div>
+{% block body_class %}acesso{% endblock %}
 
-    <!-- Card de login (glass) -->
-    <div class="card border border-white/20 bg-base-100/90 shadow-2xl backdrop-blur-md">
-      <div class="card-body">
-        <h2 class="card-title text-base-content">Entrar no sistema</h2>
-        <p class="text-sm text-base-content/60">Informe suas credenciais para continuar.</p>
+{% comment %}
+  Única página sem autenticação, e a única que não usa a estrutura de barra
+  lateral e barra superior — não há para onde navegar antes de entrar. Por
+  isso substitui o bloco `layout` inteiro, em vez de esvaziar pedaços dele.
+{% endcomment %}
+{% block layout %}
+<main class="acesso-caixa">
 
-        {% if form.errors %}
-          <div role="alert" class="alert alert-error mt-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>Usuário ou senha inválidos.</span>
-          </div>
-        {% endif %}
-
-        <form method="post" class="mt-2 space-y-4">
-          {% csrf_token %}
-
-          <label class="form-control w-full">
-            <span class="label-text mb-1 font-semibold">Usuário</span>
-            <input
-              type="text"
-              name="username"
-              required
-              autofocus
-              autocomplete="username"
-              placeholder="Digite seu usuário"
-              class="input input-bordered w-full focus:input-primary"
-            />
-          </label>
-
-          <label class="form-control w-full">
-            <span class="label-text mb-1 font-semibold">Senha</span>
-            <div class="join w-full">
-              <input
-                type="password"
-                name="password"
-                id="password"
-                required
-                autocomplete="current-password"
-                placeholder="Digite sua senha"
-                class="input input-bordered join-item w-full focus:input-primary"
-              />
-              <button type="button" id="togglePassword" class="btn join-item btn-outline" aria-label="Mostrar senha">
-                👁
-              </button>
-            </div>
-          </label>
-
-          <button type="submit" class="btn btn-primary btn-block">
-            🔐 Entrar no sistema
-          </button>
-        </form>
-      </div>
-    </div>
+  <div class="acesso-marca">
+    <img src="{% static 'logo.png' %}" alt="Grupo Flexível" />
+    <h1>Controle de Veículos</h1>
+    <p>Lançamento de viagens e fechamento de períodos.</p>
   </div>
-</div>
+
+  <div class="acesso-painel">
+    <h2>Entrar</h2>
+
+    {% if form.errors %}
+      {% comment %}
+        Mensagem genérica de propósito: dizer se o erro foi no usuário ou na
+        senha entregaria a um atacante quais contas existem.
+      {% endcomment %}
+      <div class="alerta alerta-erro alerta-pagina" role="alert">
+        <span>Usuário ou senha inválidos.</span>
+      </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="campo">
+        <label class="rotulo" for="id_username">Usuário</label>
+        <input
+          class="input{% if form.errors %} invalido{% endif %}"
+          type="text"
+          name="username"
+          id="id_username"
+          required
+          autofocus
+          autocomplete="username"
+        />
+      </div>
+
+      <div class="campo">
+        <label class="rotulo" for="id_password">Senha</label>
+        <div class="campo-composto">
+          <input
+            class="input{% if form.errors %} invalido{% endif %}"
+            type="password"
+            name="password"
+            id="id_password"
+            required
+            autocomplete="current-password"
+          />
+          {% comment %}
+            Rótulo em texto em vez de ícone: o estado do botão precisa ser
+            legível, e "Mostrar"/"Ocultar" diz exatamente o que vai acontecer.
+          {% endcomment %}
+          <button type="button" class="btn btn-secundario" id="alternar-senha" aria-controls="id_password">
+            Mostrar
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primario btn-bloco mt-4">Entrar</button>
+    </form>
+  </div>
+
+  <p class="acesso-rodape">Grupo Flexível — sistema interno</p>
+</main>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-  document.getElementById("togglePassword")?.addEventListener("click", function () {
-    const campo = document.getElementById("password");
-    const mostrando = campo.type === "text";
-    campo.type = mostrando ? "password" : "text";
-    this.setAttribute("aria-label", mostrando ? "Mostrar senha" : "Ocultar senha");
-  });
+  (function () {
+    var botao = document.getElementById("alternar-senha");
+    var campo = document.getElementById("id_password");
+    if (!botao || !campo) return;
+
+    botao.addEventListener("click", function () {
+      var oculta = campo.type === "password";
+      campo.type = oculta ? "text" : "password";
+      botao.textContent = oculta ? "Ocultar" : "Mostrar";
+      campo.focus();
+    });
+  })();
 </script>
 {% endblock %}

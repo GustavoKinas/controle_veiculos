@@ -2,143 +2,144 @@
 
 {% block title %}Lançar viagem — Controle de Veículos{% endblock %}
 
-{% block page_badge %}
-  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
-{% endblock %}
 {% block page_title %}Lançamento de viagens{% endblock %}
 {% block page_subtitle %}
-  Registre as viagens dos colaboradores. O centro de custo é vinculado
-  automaticamente pelo colaborador selecionado.
-{% endblock %}
-
-{% block extra_head %}
-<style>
-  /* Dropdown do autocomplete de colaborador. */
-  .autocomplete-lista {
-    display: none;
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 30;
-    max-height: 260px;
-    overflow-y: auto;
-  }
-  .autocomplete-lista-aberta { display: block; }
-</style>
+  <p>
+    Registre as viagens dos colaboradores. O centro de custo é vinculado
+    automaticamente pelo colaborador selecionado.
+  </p>
 {% endblock %}
 
 {% block content %}
-<div class="grid gap-6 lg:grid-cols-5">
+<div class="grade grade-2-3">
 
-  <!-- Formulário -->
-  <div class="lg:col-span-2">
-    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-      <div class="card-body">
-        <h2 class="card-title">Nova viagem</h2>
-        <p class="text-sm text-base-content/60">Selecione o colaborador, a data e a quilometragem.</p>
+  <section class="painel" aria-labelledby="titulo-nova-viagem">
+    <div class="painel-cabecalho">
+      <h2 id="titulo-nova-viagem">Nova viagem</h2>
+      <p class="descricao">Selecione o colaborador, a data e a quilometragem.</p>
+    </div>
 
-        <form method="post" novalidate class="mt-2 space-y-4">
-          {% csrf_token %}
+    <div class="painel-corpo">
+      <form method="post" novalidate>
+        {% csrf_token %}
 
-          {% for field in form %}
-            <div class="form-control w-full">
-              <label class="label" for="{% if field.name == 'funcionario' %}funcionario-busca{% else %}{{ field.id_for_label }}{% endif %}">
-                <span class="label-text font-semibold">{{ field.label }}</span>
-              </label>
+        {% for field in form %}
+          <div class="campo">
+            {% comment %}
+              O campo `funcionario` é um <select> escondido, alimentado pela
+              busca por nome logo abaixo. O rótulo aponta para o campo de
+              busca, que é onde o operador efetivamente digita.
+            {% endcomment %}
+            <label class="rotulo"
+                   for="{% if field.name == 'funcionario' %}funcionario-busca{% else %}{{ field.id_for_label }}{% endif %}">
+              {{ field.label }}
+            </label>
 
-              {% if field.name == "funcionario" %}
-                <div class="autocomplete-wrap relative">
-                  <div class="join w-full">
-                    <input
-                      type="text"
-                      id="funcionario-busca"
-                      class="input input-bordered join-item w-full focus:input-primary"
-                      placeholder="Digite o nome do colaborador..."
-                      autocomplete="off"
-                    />
-                    <button type="button" id="funcionario-seta" class="btn btn-outline join-item" aria-label="Abrir lista de colaboradores">▾</button>
-                  </div>
-                  <div id="funcionario-sugestoes" class="autocomplete-lista rounded-box border border-base-300 bg-base-100 shadow-xl"></div>
-                  <div class="hidden">{{ field }}</div>
+            {% if field.name == "funcionario" %}
+              <div class="autocomplete">
+                <div class="campo-composto">
+                  <input
+                    type="text"
+                    id="funcionario-busca"
+                    class="input"
+                    placeholder="Digite o nome do colaborador"
+                    autocomplete="off"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-controls="funcionario-sugestoes"
+                    aria-autocomplete="list"
+                  />
+                  <button type="button" id="funcionario-seta" class="btn btn-secundario"
+                          aria-label="Mostrar todos os colaboradores">
+                    <span class="caret" aria-hidden="true"></span>
+                  </button>
                 </div>
-              {% else %}
-                {{ field }}
-              {% endif %}
+                <div id="funcionario-sugestoes" class="autocomplete-lista" role="listbox"></div>
+                <div hidden>{{ field }}</div>
+              </div>
+            {% else %}
+              {{ field }}
+            {% endif %}
 
-              {% if field.errors %}
-                <span class="mt-1 text-sm text-error">{{ field.errors|striptags }}</span>
-              {% endif %}
-            </div>
-          {% endfor %}
-
-          <button type="submit" class="btn btn-primary btn-block">📝 Lançar viagem</button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- Últimas viagens -->
-  <div class="lg:col-span-3">
-    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-      <div class="card-body">
-        <div class="flex items-center justify-between">
-          <h2 class="card-title">Últimas viagens</h2>
-          <span class="badge badge-ghost">15 mais recentes</span>
-        </div>
-
-        {% if ultimas_viagens %}
-          <div class="mt-2 overflow-x-auto">
-            <table class="table table-zebra table-sm">
-              <thead>
-                <tr>
-                  <th class="w-24 whitespace-nowrap">Data</th>
-                  <th>Colaborador</th>
-                  <th class="w-44 whitespace-nowrap">Veículo</th>
-                  <th class="w-28 whitespace-nowrap">C. Custo</th>
-                  <th class="w-20 text-right">KM</th>
-                  <th class="w-28">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for viagem in ultimas_viagens %}
-                  <tr>
-                    <td class="whitespace-nowrap">{{ viagem.data|date:"d/m/Y" }}</td>
-                    <td>
-                      {# truncate precisa de um bloco interno: a tabela ignora max-width na célula #}
-                      <div class="max-w-[16rem] truncate font-medium"
-                           title="{{ viagem.funcionario }}">{{ viagem.funcionario }}</div>
-                    </td>
-                    <td class="whitespace-nowrap">
-                      <span class="font-medium">{{ viagem.veiculo.placa }}</span>
-                      <span class="text-base-content/60">· {{ viagem.veiculo.modelo }}</span>
-                    </td>
-                    <td class="whitespace-nowrap">{{ viagem.centro_custo.codigo }}</td>
-                    <td class="text-right font-semibold tabular-nums">
-                      {% if viagem.em_andamento %}—{% else %}{{ viagem.km_percorrida }}{% endif %}
-                    </td>
-                    <td>
-                      {% if viagem.em_andamento %}
-                        {% comment %} Fluxo A: saída lançada, aguardando o retorno. {% endcomment %}
-                        <a class="badge badge-warning badge-sm"
-                           href="{% url 'registrar_chegada' viagem.pk %}">Registrar chegada</a>
-                      {% elif viagem.fechada %}
-                        <span class="badge badge-ghost badge-sm">Fechada</span>
-                      {% else %}
-                        <span class="badge badge-success badge-sm text-success-content">Em aberto</span>
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+            {% if field.help_text %}
+              <span class="ajuda">{{ field.help_text }}</span>
+            {% endif %}
+            {% if field.errors %}
+              <span class="erro-campo">{{ field.errors|striptags }}</span>
+            {% endif %}
           </div>
-        {% else %}
-          <div class="py-10 text-center text-base-content/50">Nenhuma viagem lançada ainda.</div>
-        {% endif %}
-      </div>
+        {% endfor %}
+
+        <div class="form-acoes">
+          <button type="submit" class="btn btn-primario btn-bloco">Lançar viagem</button>
+        </div>
+      </form>
     </div>
-  </div>
+  </section>
+
+  <section class="painel" aria-labelledby="titulo-ultimas">
+    <div class="painel-cabecalho">
+      <h2 id="titulo-ultimas">Últimas viagens</h2>
+      <span class="contador">15 mais recentes</span>
+    </div>
+
+    {% if ultimas_viagens %}
+      {% comment %}
+        Seis colunas não cabem em tela estreita. A tabela rola dentro do
+        próprio contêiner — convertê-la em cartões destruiria a comparação
+        entre linhas, que é para o que ela existe.
+      {% endcomment %}
+      <div class="tabela-rolagem">
+        <table class="tabela tabela-compacta">
+          <thead>
+            <tr>
+              <th scope="col">Data</th>
+              <th scope="col">Colaborador</th>
+              <th scope="col">Veículo</th>
+              <th scope="col">C. Custo</th>
+              <th scope="col" class="num">KM</th>
+              <th scope="col">Situação</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for viagem in ultimas_viagens %}
+              <tr>
+                <td class="nowrap">{{ viagem.data|date:"d/m/Y" }}</td>
+                <td>
+                  {# truncar precisa de um bloco interno: a célula ignora max-width #}
+                  <span class="truncar" title="{{ viagem.funcionario }}">{{ viagem.funcionario }}</span>
+                </td>
+                <td class="nowrap">
+                  {{ viagem.veiculo.placa }}
+                  <span class="texto-apoio">· {{ viagem.veiculo.modelo }}</span>
+                </td>
+                <td class="nowrap mono">{{ viagem.centro_custo.codigo }}</td>
+                <td class="num">
+                  {% if viagem.em_andamento %}—{% else %}{{ viagem.km_percorrida }}{% endif %}
+                </td>
+                <td>
+                  {% if viagem.em_andamento %}
+                    {% comment %} Fluxo A: saída lançada, aguardando o retorno. {% endcomment %}
+                    <a class="selo selo-alerta" href="{% url 'registrar_chegada' viagem.pk %}">
+                      Registrar chegada
+                    </a>
+                  {% elif viagem.fechada %}
+                    <span class="selo selo-neutro">Fechada</span>
+                  {% else %}
+                    <span class="selo selo-sucesso">Em aberto</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="painel-corpo">
+        <p class="vazio">Nenhuma viagem lançada ainda.</p>
+      </div>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}
 
@@ -152,7 +153,6 @@
 
     if (!busca || !select || !lista || !seta) return;
 
-    const ITEM_CLASSES = "autocomplete-item cursor-pointer px-4 py-2 text-sm hover:bg-primary/15";
     const LIMITE_SUGESTOES = 200;
 
     const normalizar = function (texto) {
@@ -173,12 +173,15 @@
     const fechar = function () {
       lista.innerHTML = "";
       lista.classList.remove("autocomplete-lista-aberta");
+      busca.setAttribute("aria-expanded", "false");
       indiceAtivo = -1;
     };
 
     const destacar = function () {
       Array.from(lista.children).forEach(function (item, i) {
-        item.classList.toggle("bg-primary/20", i === indiceAtivo);
+        const ativo = i === indiceAtivo;
+        item.classList.toggle("ativo", ativo);
+        item.setAttribute("aria-selected", ativo ? "true" : "false");
       });
     };
 
@@ -196,13 +199,15 @@
 
       if (achados.length === 0) {
         const vazio = document.createElement("div");
-        vazio.className = "px-4 py-2 text-sm text-base-content/50";
+        vazio.className = "autocomplete-vazio";
         vazio.textContent = "Nenhum colaborador encontrado.";
         lista.appendChild(vazio);
       } else {
         achados.forEach(function (c) {
           const item = document.createElement("div");
-          item.className = ITEM_CLASSES;
+          item.className = "autocomplete-item";
+          item.setAttribute("role", "option");
+          item.setAttribute("aria-selected", "false");
           item.textContent = c.nome;
           item.addEventListener("mousedown", function (e) { e.preventDefault(); selecionar(c); });
           lista.appendChild(item);
@@ -210,6 +215,7 @@
       }
       indiceAtivo = -1;
       lista.classList.add("autocomplete-lista-aberta");
+      busca.setAttribute("aria-expanded", "true");
     };
 
     busca.addEventListener("input", function () {

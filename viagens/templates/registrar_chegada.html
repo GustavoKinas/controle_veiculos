@@ -2,65 +2,60 @@
 
 {% block title %}Registrar chegada — Controle de Veículos{% endblock %}
 
-{% block page_badge %}
-  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
-{% endblock %}
 {% block page_title %}Registrar chegada{% endblock %}
 {% block page_subtitle %}
-  Informe a quilometragem do painel no retorno para concluir a viagem.
+  <p>Informe a quilometragem do painel no retorno para concluir a viagem.</p>
 {% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-xl">
-  <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-    <div class="card-body">
+<div class="centro-estreito">
+  <section class="painel">
+    <div class="painel-corpo">
 
-      <div class="rounded-box bg-base-200/60 p-4">
-        <div class="grid gap-3 sm:grid-cols-2">
+      <div class="resumo">
+        <dl class="resumo-grade">
           <div>
-            <p class="text-xs uppercase text-base-content/60">Colaborador</p>
-            <p class="font-semibold">{{ viagem.funcionario }}</p>
+            <dt>Colaborador</dt>
+            <dd>{{ viagem.funcionario }}</dd>
           </div>
           <div>
-            <p class="text-xs uppercase text-base-content/60">Veículo</p>
-            <p class="font-semibold">{{ viagem.veiculo.placa }} · {{ viagem.veiculo.modelo }}</p>
+            <dt>Veículo</dt>
+            <dd>{{ viagem.veiculo.placa }} · {{ viagem.veiculo.modelo }}</dd>
           </div>
           <div>
-            <p class="text-xs uppercase text-base-content/60">Saída em</p>
-            <p class="font-semibold">{{ viagem.data|date:"d/m/Y" }}</p>
+            <dt>Saída em</dt>
+            <dd>{{ viagem.data|date:"d/m/Y" }}</dd>
           </div>
-          <div>
-            <p class="text-xs uppercase text-base-content/60">KM na saída</p>
-            <p class="font-mono text-lg font-bold">{{ viagem.km_inicial }}</p>
-          </div>
-        </div>
+        </dl>
+
+        <p class="resumo-destaque">
+          Quilometragem na saída: <strong>{{ viagem.km_inicial }}</strong> km
+        </p>
       </div>
 
-      <form method="post" class="mt-4 space-y-4">
+      <form method="post" class="mt-4">
         {% csrf_token %}
 
         {% if form.non_field_errors %}
-          <div class="alert alert-error">
+          <div class="alerta alerta-erro alerta-pagina" role="alert">
             <span>{{ form.non_field_errors|join:" " }}</span>
           </div>
         {% endif %}
 
-        <div class="form-control">
-          <label class="label" for="{{ form.km_final.id_for_label }}">
-            <span class="label-text">{{ form.km_final.label }}</span>
-          </label>
+        <div class="campo">
+          <label class="rotulo" for="{{ form.km_final.id_for_label }}">{{ form.km_final.label }}</label>
           {{ form.km_final }}
           {% for erro in form.km_final.errors %}
-            <span class="mt-1 text-sm text-error">{{ erro }}</span>
+            <span class="erro-campo">{{ erro }}</span>
           {% endfor %}
         </div>
 
-        <div class="flex flex-wrap gap-2">
-          <button type="submit" class="btn btn-primary">Concluir viagem</button>
-          <a class="btn btn-ghost" href="{% url 'agenda' %}?dia={{ viagem.data|date:'Y-m-d' }}">Cancelar</a>
+        <div class="form-acoes">
+          <button type="submit" class="btn btn-primario">Concluir viagem</button>
+          <a class="btn btn-neutro" href="{% url 'agenda' %}?dia={{ viagem.data|date:'Y-m-d' }}">Cancelar</a>
         </div>
       </form>
     </div>
-  </div>
+  </section>
 </div>
 {% endblock %}

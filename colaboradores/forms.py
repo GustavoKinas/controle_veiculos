@@ -31,15 +31,15 @@ class CadastroFuncionario(forms.ModelForm):
         fields = ["nome", "email", "unidade_fabril", "centro_custo"]
 
         widgets = {
-            "nome": forms.TextInput(attrs={"class": "input input-bordered w-full"}),
+            "nome": forms.TextInput(attrs={"class": "input"}),
             "email": forms.EmailInput(
                 attrs={
-                    "class": "input input-bordered w-full",
+                    "class": "input",
                     "placeholder": "nome.sobrenome@grupoflexivel.com.br",
                 }
             ),
-            "unidade_fabril": forms.Select(attrs={"class": "select select-bordered w-full"}),
-            "centro_custo": forms.Select(attrs={"class": "select select-bordered w-full"}),
+            "unidade_fabril": forms.Select(attrs={"class": "select"}),
+            "centro_custo": forms.Select(attrs={"class": "select"}),
         }
 
         labels = {
@@ -93,7 +93,7 @@ class InativarFuncionarioForm(forms.Form):
         queryset=Funcionario.objects.none(),
         label="Colaborador",
         empty_label="Selecione um colaborador",
-        widget=forms.Select(attrs={"class": "select select-bordered w-full"}),
+        widget=forms.Select(attrs={"class": "select"}),
     )
 
     def __init__(self, *args, **kwargs):

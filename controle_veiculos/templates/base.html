@@ -1,337 +1,208 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="pt-BR" data-theme="flexivel">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}Controle de Veículos{% endblock %}</title>
 
-  <!-- Tailwind CSS (Play CDN) -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- DaisyUI (componentes) -->
-  <link
-    href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css"
-    rel="stylesheet"
-    type="text/css"
-  />
-  <!-- HTMX -->
-  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.3/dist/htmx.min.js"></script>
+  {% comment %}
+    Sistema interno, atrás de autenticação: não há o que indexar. O robots
+    evita que qualquer rastreador que alcance a rede gaste requisições e
+    exponha títulos de páginas internas em resultados de busca.
+  {% endcomment %}
+  <meta name="robots" content="noindex, nofollow" />
+  {% block meta_description %}{% endblock %}
 
-  <!-- Fonte Inter (mantém a tipografia atual do projeto) -->
+  <link rel="icon" href="{% static 'logo.png' %}" />
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     rel="stylesheet"
   />
 
-  <script>
-    // Utilitários Tailwind com os tokens da marca (Grupo Flexível).
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
-          },
-          colors: {
-            brand: {
-              DEFAULT: "#86C13F",
-              dark: "#044322",
-              accent: "#11b74e",
-            },
-          },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}" />
 
-  <style>
-    /* ============================================================
-       Tema DaisyUI custom "flexivel" — paleta base da aplicação
-       mapeada em OKLCH (formato do DaisyUI v4).
-       ============================================================ */
-    [data-theme="flexivel"] {
-      color-scheme: light;
-
-      --p: 74.48% 0.171 130.7;   /* primary  #86C13F */
-      --pc: 21% 0.04 150;        /* texto sobre primary */
-
-      --s: 33.7% 0.083 153.6;    /* secondary #044322 */
-      --sc: 98% 0.01 150;
-
-      --a: 68.14% 0.191 148.4;   /* accent   #11b74e */
-      --ac: 21% 0.04 150;
-
-      --n: 22% 0.03 265;         /* neutral (slate-900) */
-      --nc: 98% 0 0;
-
-      --b1: 100% 0 0;            /* base-100 branco */
-      --b2: 97% 0 0;
-      --b3: 93% 0.004 250;
-      --bc: 22% 0.03 265;        /* texto base (slate-900) */
-
-      --in: 72.06% 0.191 231.6;  --inc: 98% 0 0;
-      --su: 64.8% 0.15 160;      --suc: 98% 0 0;   /* #059669 */
-      --wa: 84.71% 0.199 83.87;  --wac: 30% 0.07 80;
-      --er: 63% 0.23 25;         --erc: 98% 0 0;   /* #dc2626 */
-
-      --rounded-box: 1.25rem;
-      --rounded-btn: 0.8rem;
-      --rounded-badge: 2rem;
-      --animation-btn: 0.25s;
-      --animation-input: 0.2s;
-      --btn-focus-scale: 0.98;
-      --border-btn: 1px;
-      --tab-radius: 0.6rem;
-    }
-
-    /* Fundo preservado: imagem atual + fallback teal + grade sutil. */
-    body {
-      min-height: 100vh;
-      background-color: #088888;
-      background-image: url("{% static 'images/background.jpg' %}");
-      background-size: cover;
-      background-position: center;
-      background-attachment: fixed;
-      background-repeat: no-repeat;
-      font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
-      background:
-        linear-gradient(180deg, rgba(4, 67, 34, 0.30), rgba(4, 67, 34, 0.55)),
-        linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-      background-size: 100% 100%, 44px 44px, 44px 44px;
-    }
-
-    /* Indicador de carregamento do HTMX (spinner some/aparece suavemente). */
-    .htmx-indicator {
-      opacity: 0;
-      transition: opacity 0.2s ease;
-    }
-    .htmx-request .htmx-indicator,
-    .htmx-request.htmx-indicator {
-      opacity: 1;
-    }
-
-    /* Rolagem mais discreta. */
-    ::-webkit-scrollbar { width: 10px; height: 10px; }
-    ::-webkit-scrollbar-thumb {
-      background: rgba(4, 67, 34, 0.25);
-      border-radius: 999px;
-    }
-
-    /* O DaisyUI dá flex-grow:1 aos <p> do card-body (empurra as ações p/ o
-       rodapé); em cards curtos isso vira um bloco vazio. Anulamos aqui. */
-    .card-body > p { flex-grow: 0; }
-
-    /* Badges de status: deixam o corpo crescer com o conteúdo (sem clipar o
-       texto) e nunca quebram linha. */
-    .badge {
-      height: auto;
-      min-height: 1.5rem;
-      line-height: 1.1;
-      white-space: nowrap;
-      padding-top: 0.15rem;
-      padding-bottom: 0.15rem;
-    }
-
-    /* Contraste das linhas zebradas: o base-200 do tema é quase branco e
-       sumia sobre os cards brancos. Ajuste o 0.06 para mais/menos contraste. */
-    .table-zebra tbody tr:nth-child(even) {
-      background-color: rgba(4, 67, 34, 0.06);
-    }
-    /* Realce ao passar o mouse na linha (feedback sutil). */
-    .table tbody tr:hover {
-      background-color: rgba(134, 193, 63, 0.12);
-    }
-  </style>
+  {% comment %}
+    O HTMX permanece: sustenta a busca ao vivo de colaboradores, a navegação
+    do calendário, a paginação e o painel de rateio. É comportamento, não
+    aparência — retirá-lo seria perda de funcionalidade.
+  {% endcomment %}
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.3/dist/htmx.min.js" defer></script>
+  <script src="{% static 'js/app.js' %}" defer></script>
 
   {% block extra_head %}{% endblock %}
 </head>
 
 <body
-  class="relative z-10 text-base-content antialiased"
+  class="{% block body_class %}{% endblock %}"
   hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
 >
-  <div class="drawer relative z-10 min-h-screen {% if request.user.is_authenticated %}lg:drawer-open{% endif %}">
-    <input id="nav-drawer" type="checkbox" class="drawer-toggle" />
 
-    <!-- ================= CONTEÚDO ================= -->
-    <div class="drawer-content flex min-h-screen flex-col">
+{% block layout %}
+<a class="skip-link" href="#conteudo-principal">Ir para o conteúdo</a>
 
-      {% if request.user.is_authenticated %}
-      <!-- Navbar -->
-      <header class="sticky top-0 z-30 border-b border-white/10 bg-brand-dark/70 backdrop-blur-md">
-        <div class="navbar mx-auto max-w-6xl px-4 text-white">
-          <div class="flex-none lg:hidden">
-            <label for="nav-drawer" aria-label="Abrir menu" class="btn btn-square btn-ghost text-white">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </label>
-          </div>
+<div class="app">
 
-          <div class="flex flex-1 items-center gap-3">
-            <span class="text-lg font-extrabold tracking-tight">Controle de Veículos</span>
-          </div>
+  {% if request.user.is_authenticated %}
+  {% comment %}
+    Fixa a partir de 1024px, gaveta sobreposta abaixo disso (ver app.css e
+    app.js). O menu mostra só o que o perfil pode abrir: isto é conveniência
+    de tela, não controle de acesso — a URL continua existindo e quem a
+    digitar esbarra no PerfilRequeridoMixin da view, que é onde o acesso é
+    decidido.
+  {% endcomment %}
+  <aside class="sidebar" id="sidebar" tabindex="-1">
+    <div class="sidebar-marca">
+      <img src="{% static 'logo.png' %}" alt="Grupo Flexível" />
+      <span>Controle de Veículos</span>
+    </div>
 
-          <div class="flex-none">
-            <div class="dropdown dropdown-end">
-              <div tabindex="0" role="button" class="btn btn-ghost gap-2 text-white">
-                <div class="avatar placeholder">
-                  <div class="w-8 rounded-full bg-brand text-brand-dark">
-                    <span class="text-sm font-bold">{{ request.user.nome|slice:":1"|upper|default:"U" }}</span>
-                  </div>
-                </div>
-                <span class="hidden max-w-[10rem] truncate sm:inline">{{ request.user.nome|default:request.user.username }}</span>
-              </div>
-              <ul tabindex="0" class="menu dropdown-content z-40 mt-3 w-52 rounded-box bg-base-100 p-2 text-base-content shadow-xl">
-                <li class="menu-title">{{ request.user.nome|default:request.user.username }}</li>
-                {% if perms.viagens.realizar_fechamento %}
-                  <li><a href="{% url 'historico_fechamentos' %}">📚 Fechamentos</a></li>
-                {% endif %}
-                <li><a class="text-error" href="{% url 'logout' %}">🚪 Sair</a></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </header>
+    <nav class="sidebar-nav" aria-label="Navegação principal">
+      {% if perms.viagens.lancar_viagem %}
+        <p class="nav-grupo" id="grupo-viagens">Viagens</p>
+        <ul class="nav-lista" aria-labelledby="grupo-viagens">
+          <li>
+            <a class="nav-link" href="{% url 'agenda' %}"
+               {% if request.resolver_match.url_name == 'agenda' %}aria-current="page"{% endif %}>
+              Agenda
+            </a>
+          </li>
+          <li>
+            <a class="nav-link" href="{% url 'lancar_viagem' %}"
+               {% if request.resolver_match.url_name == 'lancar_viagem' %}aria-current="page"{% endif %}>
+              Lançar viagem
+            </a>
+          </li>
+        </ul>
       {% endif %}
 
-      <!-- Área principal -->
-      <main class="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-10">
-
-        <!-- Cabeçalho da página -->
-        {% block page_header %}
-        <div class="mb-6 sm:mb-8">
-          {% block page_badge %}
-            <span class="badge badge-outline border-white/40 text-white/90">Sistema Interno</span>
-          {% endblock %}
-          <h1 class="mt-3 text-3xl font-extrabold tracking-tight text-white drop-shadow sm:text-4xl">
-            {% block page_title %}Painel{% endblock %}
-          </h1>
-          <p class="mt-2 max-w-2xl text-sm text-white/80 sm:text-base">
-            {% block page_subtitle %}{% endblock %}
-          </p>
-        </div>
-        {% endblock %}
-
-        <!-- Toasts (mensagens do Django) -->
-        {% if messages %}
-          <div class="toast toast-top toast-end z-50">
-            {% for message in messages %}
-              <div class="alert alert-{{ message.tags|default:'info' }} shadow-lg">
-                <span>{{ message }}</span>
-              </div>
-            {% endfor %}
-          </div>
-        {% endif %}
-
-        {% block content %}{% endblock %}
-      </main>
-
-      <!-- Footer -->
-      <footer class="border-t border-white/10 bg-brand-dark/60 py-5 text-center text-xs text-white/70 backdrop-blur-md">
-        Controle de Veículos • Grupo Flexível — {% now "Y" %}
-      </footer>
-    </div>
-
-    <!-- ================= SIDEBAR (drawer) ================= -->
-    {% if request.user.is_authenticated %}
-    <div class="drawer-side z-40">
-      <label for="nav-drawer" aria-label="Fechar menu" class="drawer-overlay"></label>
-      <aside class="flex min-h-full w-72 flex-col bg-base-100/95 backdrop-blur-md">
-        <div class="flex items-center gap-3 border-b border-base-200 px-5 py-5">
-          <img src="{% static 'logo.png' %}" alt="Logo" class="h-10 w-auto" />
-          <div>
-            <p class="text-sm font-extrabold leading-tight text-base-content">Controle de</p>
-            <p class="text-sm font-extrabold leading-tight text-primary">Veículos</p>
-          </div>
-        </div>
-
-        {% comment %}
-          O menu mostra só o que o perfil pode abrir. Isto é conveniência, não
-          controle de acesso: a URL continua existindo e quem digitá-la esbarra
-          no PerfilRequeridoMixin da view, que é onde o acesso é decidido.
-        {% endcomment %}
-        <ul class="menu w-full grow gap-1 px-3 py-4 text-base-content">
-          {% if perms.viagens.lancar_viagem %}
-          <li class="menu-title">Viagens</li>
+      {% if perms.viagens.realizar_fechamento %}
+        <p class="nav-grupo" id="grupo-fechamento">Fechamento</p>
+        <ul class="nav-lista" aria-labelledby="grupo-fechamento">
           <li>
-            <a href="{% url 'agenda' %}" class="{% if request.resolver_match.url_name == 'agenda' %}active{% endif %}">
-              📅 Agenda
+            <a class="nav-link" href="{% url 'fechamento' %}"
+               {% if request.resolver_match.url_name == 'fechamento' %}aria-current="page"{% endif %}>
+              Fechamento e rateio
             </a>
           </li>
           <li>
-            <a href="{% url 'lancar_viagem' %}" class="{% if request.resolver_match.url_name == 'lancar_viagem' %}active{% endif %}">
-              📝 Lançar viagem
+            <a class="nav-link" href="{% url 'historico_fechamentos' %}"
+               {% if request.resolver_match.url_name == 'historico_fechamentos' %}aria-current="page"{% endif %}>
+              Histórico
             </a>
           </li>
-          {% endif %}
+        </ul>
+      {% endif %}
 
-          {% if perms.viagens.realizar_fechamento %}
-          <li class="menu-title{% if not perms.viagens.lancar_viagem %}{% else %} mt-2{% endif %}">Fechamento</li>
-          <li>
-            <a href="{% url 'fechamento' %}" class="{% if request.resolver_match.url_name == 'fechamento' %}active{% endif %}">
-              🧮 Fechamento e rateio
-            </a>
-          </li>
-          <li>
-            <a href="{% url 'historico_fechamentos' %}" class="{% if request.resolver_match.url_name == 'historico_fechamentos' %}active{% endif %}">
-              📚 Histórico
-            </a>
-          </li>
-          {% endif %}
-
-          {% if perms.colaboradores.view_funcionario %}
-          <li class="menu-title mt-2">Colaboradores</li>
+      {% if perms.colaboradores.view_funcionario %}
+        <p class="nav-grupo" id="grupo-colaboradores">Colaboradores</p>
+        <ul class="nav-lista" aria-labelledby="grupo-colaboradores">
           {% if perms.colaboradores.change_funcionario %}
           <li>
-            <a href="{% url 'funcionarios' %}" class="{% if request.resolver_match.url_name == 'funcionarios' %}active{% endif %}">
-              👤 Cadastrar / inativar
+            <a class="nav-link" href="{% url 'funcionarios' %}"
+               {% if request.resolver_match.url_name == 'funcionarios' %}aria-current="page"{% endif %}>
+              Cadastrar e inativar
             </a>
           </li>
           {% endif %}
           <li>
-            <a href="{% url 'funcionarios_cadastrados' %}" class="{% if request.resolver_match.url_name == 'funcionarios_cadastrados' %}active{% endif %}">
-              📋 Cadastrados
+            <a class="nav-link" href="{% url 'funcionarios_cadastrados' %}"
+               {% if request.resolver_match.url_name == 'funcionarios_cadastrados' %}aria-current="page"{% endif %}>
+              Cadastrados
             </a>
           </li>
-          {% endif %}
         </ul>
+      {% endif %}
+    </nav>
 
-        <div class="border-t border-base-200 p-3">
-          <a href="{% url 'logout' %}" class="btn btn-outline btn-error btn-block btn-sm">🚪 Sair</a>
-        </div>
-      </aside>
+    <div class="sidebar-rodape">
+      <a class="btn btn-secundario btn-bloco btn-sm" href="{% url 'logout' %}">Sair</a>
     </div>
+  </aside>
+
+  <div class="nav-overlay" id="nav-overlay"></div>
+  {% endif %}
+
+  <div class="conteudo">
+
+    {% if request.user.is_authenticated %}
+    <header class="topbar">
+      <button
+        type="button"
+        class="btn-menu"
+        id="btn-menu"
+        aria-expanded="false"
+        aria-controls="sidebar"
+      >
+        <span class="sr-only">Abrir menu de navegação</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+      </button>
+
+      <p class="topbar-titulo">Controle de Veículos</p>
+
+      <details class="usuario">
+        <summary>
+          <span class="usuario-inicial" aria-hidden="true">{{ request.user.nome|slice:":1"|upper|default:"U" }}</span>
+          <span class="usuario-nome">{{ request.user.nome|default:request.user.username }}</span>
+        </summary>
+        <div class="usuario-menu">
+          <p class="usuario-menu-titulo">{{ request.user.nome|default:request.user.username }}</p>
+          {% if perms.viagens.realizar_fechamento %}
+            <a href="{% url 'historico_fechamentos' %}">Histórico de fechamentos</a>
+          {% endif %}
+          <a class="sair" href="{% url 'logout' %}">Sair</a>
+        </div>
+      </details>
+    </header>
     {% endif %}
-  </div>
 
-  <!-- Spinner global do HTMX (aparece em qualquer requisição) -->
-  <div
-    id="global-loading"
-    class="htmx-indicator pointer-events-none fixed bottom-6 left-6 z-50"
-  >
-    <span class="loading loading-spinner loading-lg text-primary"></span>
-  </div>
-  <script>
-    // Liga o spinner global a qualquer requisição HTMX em andamento.
-    document.body.addEventListener("htmx:beforeRequest", function () {
-      document.getElementById("global-loading").classList.add("htmx-request");
-    });
-    document.body.addEventListener("htmx:afterRequest", function () {
-      document.getElementById("global-loading").classList.remove("htmx-request");
-    });
-  </script>
+    <main class="principal" id="conteudo-principal">
+      {% block page_header %}
+      <div class="pagina-cabecalho">
+        <h1>{% block page_title %}Painel{% endblock %}</h1>
+        {% block page_subtitle %}{% endblock %}
+      </div>
+      {% endblock %}
 
-  {% block extra_scripts %}{% endblock %}
+      {% if messages %}
+        <div class="mensagens">
+          {% for message in messages %}
+            {% comment %}
+              As tags do Django (success, error, warning, info) viram a
+              variante do alerta. `role` distingue o que interrompe o leitor
+              de tela (erro) do que apenas é anunciado (o resto).
+            {% endcomment %}
+            <div
+              class="alerta alerta-{% if message.tags == 'error' %}erro{% elif message.tags == 'success' %}sucesso{% elif message.tags == 'warning' %}alerta{% else %}info{% endif %}"
+              role="{% if message.tags == 'error' %}alert{% else %}status{% endif %}"
+            >
+              <span>{{ message }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="rodape">
+      Controle de Veículos — Grupo Flexível, {% now "Y" %}
+    </footer>
+  </div>
+</div>
+
+<div class="carregando-global htmx-indicator" id="carregando-global" aria-hidden="true">
+  <span class="spinner"></span>
+  <span>Carregando</span>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}{% endblock %}
 </body>
 </html>

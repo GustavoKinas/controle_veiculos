@@ -2,13 +2,12 @@
 
 {% block title %}Agenda de viagens — Controle de Veículos{% endblock %}
 
-{% block page_badge %}
-  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
-{% endblock %}
 {% block page_title %}Agenda de viagens{% endblock %}
 {% block page_subtitle %}
-  Reservas de veículos pré-cadastradas. Selecione um dia para ver a fila de
-  lançamentos pendentes.
+  <p>
+    Reservas de veículos pré-cadastradas. Selecione um dia no calendário para
+    ver a fila de lançamentos pendentes.
+  </p>
 {% endblock %}
 
 {% block content %}
@@ -18,7 +17,7 @@
     conveniência de tela, não controle de acesso: quem forjar o POST ainda
     esbarra no PerfilRequeridoMixin da view.
   {% endcomment %}
-  <div class="mb-4 flex flex-wrap items-center justify-end gap-2">
+  <div class="acoes-pagina">
     {% comment %}
       A sincronização é síncrona e leva alguns segundos (uma requisição HTTP
       por caixa de recurso). Sem retorno visual o operador acha que travou e
@@ -26,139 +25,123 @@
     {% endcomment %}
     <form method="post" action="{% url 'sincronizar_reservas' %}"
           onsubmit="this.querySelector('button').disabled = true;
-                    this.querySelector('button').textContent = 'Sincronizando…';">
+                    this.querySelector('button').textContent = 'Sincronizando...';">
       {% csrf_token %}
       {# Volta para o mesmo dia que estava aberto, não para hoje. #}
       <input type="hidden" name="dia" value="{{ dia_selecionado|date:'Y-m-d' }}" />
-      <button type="submit" class="btn btn-outline btn-sm border-white/40 bg-base-100/80">
-        🔄 Sincronizar reservas
-      </button>
+      <button type="submit" class="btn btn-secundario btn-sm">Sincronizar reservas</button>
     </form>
 
     <a href="{% url 'nova_reserva' %}?dia={{ dia_selecionado|date:'Y-m-d' }}"
-       class="btn btn-primary btn-sm">
-      ➕ Nova reserva
-    </a>
+       class="btn btn-primario btn-sm">Nova reserva</a>
   </div>
 {% endif %}
 
-<div class="grid gap-6 lg:grid-cols-5">
+<div class="grade grade-2-3">
 
   {% comment %}
     Fila do dia selecionado: é o trabalho concreto do operador.
 
-    Proporção 2/5 contra 3/5 do calendário: tentamos inverter para alargar
-    este card, mas o calendário espremido em 2/5 fica ruim — a grade mensal
-    precisa de largura para as sete colunas respirarem. Quem resolve o nome
-    cortado é a quebra de linha (ver o `break-words` abaixo), não a largura.
+    Proporção 2/5 contra 3/5 do calendário: inverter alargaria este painel,
+    mas o calendário espremido fica ruim — a grade mensal precisa de largura
+    para as sete colunas respirarem. Quem resolve o nome cortado é a quebra
+    de linha (.reserva-nome), não a largura da coluna.
   {% endcomment %}
-  <div class="lg:col-span-2">
-    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-      <div class="card-body">
-        <div class="flex items-center justify-between">
-          <h2 class="card-title">
-            {% if dia_selecionado == hoje %}Hoje{% else %}{{ dia_selecionado|date:"l" }}{% endif %},
-            {{ dia_selecionado|date:"d/m" }}
-          </h2>
-          <span class="badge badge-ghost">
-            {{ reservas_do_dia|length }} reserva{{ reservas_do_dia|length|pluralize:"s" }}
-          </span>
-        </div>
+  <section class="painel" aria-labelledby="titulo-dia">
+    <div class="painel-cabecalho">
+      <h2 id="titulo-dia">
+        {% if dia_selecionado == hoje %}Hoje{% else %}{{ dia_selecionado|date:"l" }}{% endif %},
+        {{ dia_selecionado|date:"d/m" }}
+      </h2>
+      <span class="contador">
+        {{ reservas_do_dia|length }} reserva{{ reservas_do_dia|length|pluralize:"s" }}
+      </span>
+    </div>
 
-        {% if reservas_do_dia %}
-          <div class="mt-2 space-y-2">
-            {% for reserva in reservas_do_dia %}
-              <div class="rounded-box border border-base-300 p-3
-                          {% if reserva.status == 'lancada' %}opacity-60{% endif %}">
-                <div class="flex items-start justify-between gap-2">
-                  <div class="min-w-0">
-                    {% comment %}
-                      Sem `truncate`: o nome do colaborador é a informação que
-                      identifica a reserva, e cortá-lo pela metade obrigava o
-                      operador a passar o mouse para ler. Nome comprido agora
-                      quebra em duas linhas — o card cresce, que é o mal menor.
-                    {% endcomment %}
-                    <p class="font-semibold break-words">
-                      {% if reserva.hora_inicio %}
-                        <span class="font-mono text-sm">{{ reserva.hora_inicio|time:"H:i" }}</span>
-                      {% endif %}
-                      {{ reserva.descricao_solicitante }}
-                    </p>
-                    <p class="text-sm text-base-content/70">
-                      {{ reserva.veiculo.placa }} · {{ reserva.veiculo.modelo }}
-                      {% if reserva.destino %} — {{ reserva.destino }}{% endif %}
-                    </p>
-                  </div>
-
-                  {% if reserva.viagem.em_andamento %}
-                    <span class="badge badge-warning badge-sm shrink-0">Na rua</span>
-                  {% elif reserva.status == 'lancada' %}
-                    <span class="badge badge-ghost badge-sm shrink-0">Lançada</span>
-                  {% elif reserva.atrasada %}
-                    <span class="badge badge-error badge-sm shrink-0 text-white">Atrasada</span>
-                  {% else %}
-                    <span class="badge badge-success badge-sm shrink-0 text-success-content">Pendente</span>
-                  {% endif %}
+    <div class="painel-corpo">
+      {% if reservas_do_dia %}
+        <div class="reservas">
+          {% for reserva in reservas_do_dia %}
+            <article class="reserva{% if reserva.status == 'lancada' %} reserva-lancada{% endif %}">
+              <div class="reserva-topo">
+                <div class="reserva-identificacao">
+                  {% comment %}
+                    Sem truncar: o nome do colaborador é a informação que
+                    identifica a reserva, e cortá-lo pela metade obrigava o
+                    operador a passar o mouse para ler.
+                  {% endcomment %}
+                  <p class="reserva-nome">
+                    {% if reserva.hora_inicio %}
+                      <span class="reserva-hora">{{ reserva.hora_inicio|time:"H:i" }}</span>
+                    {% endif %}
+                    {{ reserva.descricao_solicitante }}
+                  </p>
+                  <p class="reserva-detalhe">
+                    {{ reserva.veiculo.placa }} · {{ reserva.veiculo.modelo }}
+                    {% if reserva.destino %} — {{ reserva.destino }}{% endif %}
+                  </p>
                 </div>
 
-                {% if reserva.pendente %}
-                  {% if reserva.data > hoje %}
-                    {% comment %}
-                      A viagem ainda não aconteceu: `Viagem.clean()` recusaria
-                      o lançamento por data futura. Botão bloqueado para não
-                      oferecer uma ação que sempre falharia.
-
-                      Isto é conveniência de tela, não controle de acesso — a
-                      URL continua respondendo e o servidor continua validando.
-                    {% endcomment %}
-                    <button class="btn btn-sm mt-3 w-full" disabled
-                            title="Disponível a partir de {{ reserva.data|date:'d/m/Y' }}">
-                      Aguardando a data
-                    </button>
-                  {% else %}
-                    <a class="btn btn-primary btn-sm mt-3 w-full"
-                       href="{% url 'lancar_reserva' reserva.pk %}">Lançar KM</a>
-                  {% endif %}
-
-                {% elif reserva.viagem.em_andamento %}
-                  {% comment %}
-                    Fluxo A, segunda etapa: o veículo saiu e ainda não voltou.
-                  {% endcomment %}
-                  <a class="btn btn-warning btn-sm mt-3 w-full"
-                     href="{% url 'registrar_chegada' reserva.viagem.pk %}">
-                    Registrar chegada
-                  </a>
-
-                {% elif reserva.viagem_id %}
-                  <p class="mt-2 text-xs text-base-content/60">
-                    {{ reserva.viagem.km_percorrida }} km lançados
-                  </p>
-                {% endif %}
-
-                {% if not reserva.funcionario_id %}
-                  <p class="mt-2 text-xs text-warning">
-                    Colaborador não identificado no cadastro
-                  </p>
+                {% if reserva.viagem.em_andamento %}
+                  <span class="selo selo-alerta">Na rua</span>
+                {% elif reserva.status == 'lancada' %}
+                  <span class="selo selo-neutro">Lançada</span>
+                {% elif reserva.atrasada %}
+                  <span class="selo selo-perigo">Atrasada</span>
+                {% else %}
+                  <span class="selo selo-sucesso">Pendente</span>
                 {% endif %}
               </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="py-10 text-center text-base-content/50">
-            Nenhuma reserva para este dia.
-          </div>
-        {% endif %}
-      </div>
-    </div>
-  </div>
 
-  <!-- Panorama do mês -->
-  <div class="lg:col-span-3">
-    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-      <div class="card-body">
-        {% include 'viagens/partials/_calendario.html' %}
-      </div>
+              {% if reserva.pendente %}
+                {% if reserva.data > hoje %}
+                  {% comment %}
+                    A viagem ainda não aconteceu: `Viagem.clean()` recusaria o
+                    lançamento por data futura. Botão bloqueado para não
+                    oferecer uma ação que sempre falharia.
+
+                    Isto é conveniência de tela, não controle de acesso — a URL
+                    continua respondendo e o servidor continua validando.
+                  {% endcomment %}
+                  <button class="btn btn-secundario btn-sm btn-bloco" disabled
+                          title="Disponível a partir de {{ reserva.data|date:'d/m/Y' }}">
+                    Aguardando a data
+                  </button>
+                {% else %}
+                  <a class="btn btn-primario btn-sm btn-bloco"
+                     href="{% url 'lancar_reserva' reserva.pk %}">Lançar KM</a>
+                {% endif %}
+
+              {% elif reserva.viagem.em_andamento %}
+                {% comment %} Fluxo A, segunda etapa: o veículo saiu e ainda não voltou. {% endcomment %}
+                <a class="btn btn-secundario btn-sm btn-bloco"
+                   href="{% url 'registrar_chegada' reserva.viagem.pk %}">Registrar chegada</a>
+
+              {% elif reserva.viagem_id %}
+                <p class="reserva-nota">{{ reserva.viagem.km_percorrida }} km lançados</p>
+              {% endif %}
+
+              {% if not reserva.funcionario_id %}
+                <p class="reserva-nota reserva-nota-alerta">
+                  Colaborador não identificado no cadastro
+                </p>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="vazio">Nenhuma reserva para este dia.</p>
+      {% endif %}
     </div>
-  </div>
+  </section>
+
+  <section class="painel" aria-labelledby="titulo-calendario">
+    <div class="painel-cabecalho">
+      <h2 id="titulo-calendario">Panorama do mês</h2>
+    </div>
+    <div class="painel-corpo">
+      {% include 'viagens/partials/_calendario.html' %}
+    </div>
+  </section>
 </div>
 {% endblock %}

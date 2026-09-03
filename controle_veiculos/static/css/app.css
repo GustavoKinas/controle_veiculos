@@ -1,0 +1,1486 @@
+/* ==========================================================================
+   Controle de Veículos — folha de estilo da aplicação.
+
+   Substitui o Tailwind (Play CDN) e o DaisyUI que antes vinham por CDN e
+   montavam a interface com utilitários inline. Três motivos:
+
+   1. o Play CDN compila o CSS no navegador a cada carregamento — a própria
+      Tailwind desaconselha em produção (atraso e flash de conteúdo sem
+      estilo);
+   2. dois CDNs externos são ponto único de falha numa aplicação de rede
+      interna;
+   3. sem arquivo de estilo próprio não havia onde padronizar componentes:
+      cada template repetia a sua própria combinação de utilitários.
+
+   O HTMX permanece: é comportamento (busca ao vivo, calendário, paginação),
+   não aparência.
+
+   A paleta original foi preservada integralmente; ver "Cores da marca".
+   ========================================================================== */
+
+/* ==========================================================================
+   1. TOKENS
+   ========================================================================== */
+
+:root {
+  /* --- Cores da marca (inalteradas) ------------------------------------ */
+  --brand: #86c13f;          /* verde claro institucional */
+  --brand-dark: #044322;     /* verde escuro institucional */
+  --brand-accent: #11b74e;
+  --brand-teal: #088888;     /* fundo de fallback da tela de acesso */
+
+  /* Derivadas, para estados e superfícies. Mesma matiz, sem cor nova. */
+  --brand-050: #f2f8e9;
+  --brand-100: #e4f0d2;
+  --brand-600: #6da032;
+  --brand-700: #5d8a2a;
+  --dark-700: #0a5c31;
+  --dark-600: #0d6f3b;
+
+  /* --- Neutros --------------------------------------------------------- */
+  --ink: #0f172a;            /* texto principal (slate-900, como antes) */
+  --ink-2: #475569;          /* texto secundário */
+  --ink-3: #64748b;          /* texto de apoio */
+  --ink-4: #94a3b8;          /* texto desabilitado / vazio */
+
+  --canvas: #eef1f4;         /* fundo da área de trabalho */
+  --surface: #ffffff;        /* superfície de cartões e tabelas */
+  --surface-2: #f6f8fa;      /* superfície recuada (cabeçalhos, blocos) */
+  --surface-3: #eceff2;
+
+  --border: #dfe4ea;
+  --border-strong: #c8d0d9;
+
+  /* --- Semânticas (mantidas do tema anterior) -------------------------- */
+  --success: #059669;
+  --success-bg: #e7f6f0;
+  --success-border: #a7dcc8;
+
+  --danger: #dc2626;
+  --danger-bg: #fdeceb;
+  --danger-border: #f4b5b1;
+
+  --warning: #b45309;
+  --warning-bg: #fdf3e3;
+  --warning-border: #f0d19a;
+
+  --info: #0369a1;
+  --info-bg: #e8f2fa;
+  --info-border: #a8cde8;
+
+  /* --- Tipografia ------------------------------------------------------ */
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+               "Liberation Mono", monospace;
+
+  /* Escala tipográfica. Base 14px: densidade adequada a telas de dados,
+     que é o que esta aplicação é. */
+  --fs-xs: 0.6875rem;   /* 11px — rótulos de apoio */
+  --fs-sm: 0.75rem;     /* 12px */
+  --fs-md: 0.8125rem;   /* 13px */
+  --fs-base: 0.875rem;  /* 14px — corpo */
+  --fs-lg: 1rem;        /* 16px */
+  --fs-xl: 1.125rem;    /* 18px — título de seção */
+  --fs-2xl: 1.375rem;   /* 22px — título de página */
+  --fs-3xl: 1.75rem;    /* 28px */
+
+  --lh-tight: 1.25;
+  --lh-normal: 1.5;
+
+  /* --- Espaçamento ----------------------------------------------------- */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.25rem;
+  --sp-6: 1.5rem;
+  --sp-8: 2rem;
+  --sp-10: 2.5rem;
+  --sp-12: 3rem;
+
+  /* --- Forma ----------------------------------------------------------- */
+  --radius-sm: 3px;
+  --radius: 5px;
+  --radius-lg: 8px;
+
+  /* Sombras discretas: elevação para separar planos, não para decorar. */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 10px 24px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+
+  /* --- Movimento ------------------------------------------------------- */
+  --t-fast: 120ms ease;
+  --t: 160ms ease;
+
+  /* --- Medidas --------------------------------------------------------- */
+  --sidebar-w: 248px;
+  --topbar-h: 56px;
+  --content-max: 1280px;
+}
+
+/* ==========================================================================
+   2. RESET E BASE
+   ========================================================================== */
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  line-height: var(--lh-normal);
+  color: var(--ink);
+  background-color: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, p, figure, ul, ol { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+
+img, svg { display: block; max-width: 100%; }
+
+a { color: var(--brand-dark); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+table { border-collapse: collapse; border-spacing: 0; }
+
+/* Foco visível e consistente em toda a aplicação. Usa :focus-visible para
+   não desenhar o anel em cliques de mouse, só na navegação por teclado. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Superfícies escuras precisam de anel claro para manter contraste. */
+.sidebar :where(a, button, summary):focus-visible,
+.topbar :where(a, button, summary):focus-visible {
+  outline-color: #ffffff;
+}
+
+/* Conteúdo lido por leitor de tela, invisível na tela. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Primeiro elemento focável da página: leva direto ao conteúdo. */
+.skip-link {
+  position: absolute;
+  left: var(--sp-2);
+  top: -3rem;
+  z-index: 200;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--brand-dark);
+  color: #fff;
+  border-radius: var(--radius);
+  font-weight: 600;
+  transition: top var(--t);
+}
+.skip-link:focus { top: var(--sp-2); text-decoration: none; }
+
+/* ==========================================================================
+   3. ESTRUTURA DA APLICAÇÃO
+
+   Barra lateral fixa a partir de 1024px; abaixo disso ela vira uma gaveta
+   sobreposta, aberta pelo botão da barra superior. O estado fica numa classe
+   no <body> (`nav-aberta`), controlada por app.js.
+   ========================================================================== */
+
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* --- Barra lateral ---------------------------------------------------- */
+
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar-w);
+  background: var(--brand-dark);
+  color: rgba(255, 255, 255, 0.9);
+  transform: translateX(-100%);
+  /* `visibility` fecha a gaveta tambem para o teclado: so o transform a
+     tiraria da tela deixando os links ainda focaveis, e o operador tabularia
+     para dentro de um menu invisivel. */
+  visibility: hidden;
+  transition: transform var(--t), visibility var(--t);
+}
+body.nav-aberta .sidebar {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.sidebar-marca {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: var(--topbar-h);
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+.sidebar-marca img { height: 26px; width: auto; }
+.sidebar-marca span {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #fff;
+}
+
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-4) var(--sp-3);
+}
+
+/* Título de grupo do menu. Maiúsculas apenas aqui, em corpo pequeno, para
+   separar seções sem competir com os itens. */
+.nav-grupo {
+  padding: 0 var(--sp-3);
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+.nav-grupo + .nav-lista { margin-bottom: var(--sp-5); }
+
+.nav-lista li + li { margin-top: 2px; }
+
+.nav-link {
+  display: block;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius);
+  border-left: 3px solid transparent;
+  font-size: var(--fs-base);
+  color: rgba(255, 255, 255, 0.82);
+  transition: background-color var(--t-fast), color var(--t-fast);
+}
+.nav-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  text-decoration: none;
+}
+/* Página atual: marcada por cor E por barra lateral, para não depender
+   apenas de cor (requisito de acessibilidade). `aria-current` carrega a
+   informação para o leitor de tela. */
+.nav-link[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.12);
+  border-left-color: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+
+.sidebar-rodape {
+  flex-shrink: 0;
+  padding: var(--sp-3);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Véu que escurece o conteúdo enquanto a gaveta está aberta (só no mobile). */
+.nav-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(15, 23, 42, 0.45);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--t), visibility var(--t);
+}
+body.nav-aberta .nav-overlay { opacity: 1; visibility: visible; }
+
+/* --- Coluna de conteúdo ----------------------------------------------- */
+
+.conteudo {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;          /* permite que tabelas largas rolem em vez de esticar */
+  min-height: 100vh;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: var(--topbar-h);
+  padding: 0 var(--sp-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-titulo {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.btn-menu:hover { background: var(--surface-2); color: var(--ink); }
+
+.principal {
+  flex: 1;
+  width: 100%;
+  max-width: var(--content-max);
+  padding: var(--sp-6) var(--sp-4) var(--sp-10);
+  margin: 0 auto;
+}
+
+.rodape {
+  padding: var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* --- Menu do usuário (details/summary: acessível sem JavaScript) ------- */
+
+.usuario { position: relative; }
+
+.usuario > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--fs-base);
+  color: var(--ink-2);
+}
+.usuario > summary::-webkit-details-marker { display: none; }
+.usuario > summary:hover { background: var(--surface-2); color: var(--ink); }
+
+.usuario-inicial {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--brand-100);
+  color: var(--brand-dark);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.usuario-nome {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usuario-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 45;
+  min-width: 208px;
+  /* Em telas muito estreitas o menu nao pode ultrapassar a viewport. */
+  max-width: calc(100vw - 2rem);
+  padding: var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.usuario-menu-titulo {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-2);
+  word-break: break-word;
+}
+.usuario-menu a {
+  display: block;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius);
+  color: var(--ink);
+}
+.usuario-menu a:hover { background: var(--surface-2); text-decoration: none; }
+.usuario-menu a.sair { color: var(--danger); }
+
+/* --- Cabeçalho de página ---------------------------------------------- */
+
+.pagina-cabecalho {
+  margin-bottom: var(--sp-6);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+.pagina-cabecalho h1 {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--lh-tight);
+}
+.pagina-cabecalho p {
+  max-width: 68ch;
+  margin-top: var(--sp-2);
+  color: var(--ink-2);
+}
+
+/* --- Barra de ações da página ----------------------------------------- */
+
+.acoes-pagina {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+/* ==========================================================================
+   4. GRADE
+   ========================================================================== */
+
+.grade { display: grid; gap: var(--sp-5); }
+.grade-2 { grid-template-columns: 1fr; }
+.grade-3 { grid-template-columns: 1fr; }
+
+/* Painel estreito (formulário) ao lado de painel largo (dados). */
+.grade-2-3 { grid-template-columns: 1fr; }
+
+@media (min-width: 768px) {
+  .grade-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grade-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 1024px) {
+  .grade-2-3 { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+}
+
+@media (min-width: 1024px) {
+  /* Barra permanente: sempre visivel e sempre no fluxo de foco. */
+  .sidebar { transform: translateX(0); visibility: visible; }
+  .conteudo { margin-left: var(--sidebar-w); }
+  .btn-menu { display: none; }
+  .nav-overlay { display: none; }
+  .principal { padding: var(--sp-8) var(--sp-6) var(--sp-12); }
+}
+
+/* ==========================================================================
+   5. BOTÕES
+
+   Hierarquia em quatro níveis, para que a ação principal de cada tela seja
+   identificável de relance:
+
+     .btn-primario    ação principal (uma por tela)
+     .btn-secundario  ação de apoio, contorno
+     .btn-neutro      ação neutra / cancelar
+     .btn-perigo      ação destrutiva ou irreversível
+   ========================================================================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 36px;                 /* área de toque confortável */
+  padding: 0 var(--sp-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--t-fast), border-color var(--t-fast),
+              color var(--t-fast);
+}
+.btn:hover { text-decoration: none; }
+.btn:disabled,
+.btn[disabled],
+.btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.btn-primario {
+  background: var(--brand-dark);
+  border-color: var(--brand-dark);
+  color: #fff;
+}
+.btn-primario:not(:disabled):hover { background: var(--dark-600); border-color: var(--dark-600); }
+
+.btn-secundario {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+.btn-secundario:not(:disabled):hover { background: var(--surface-2); border-color: var(--ink-4); }
+
+.btn-neutro {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-2);
+}
+.btn-neutro:not(:disabled):hover { background: var(--surface-3); color: var(--ink); }
+
+.btn-perigo {
+  background: var(--surface);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+.btn-perigo:not(:disabled):hover { background: var(--danger-bg); border-color: var(--danger); }
+
+.btn-sm { min-height: 30px; padding: 0 var(--sp-3); font-size: var(--fs-md); }
+.btn-bloco { width: 100%; }
+
+/* Grupo de botões encostados (navegação de mês, paginação). */
+.btn-grupo { display: inline-flex; }
+.btn-grupo > .btn { border-radius: 0; margin-left: -1px; }
+.btn-grupo > .btn:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
+.btn-grupo > .btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.btn-grupo > .btn:focus-visible { position: relative; z-index: 1; }
+
+/* Rótulo estático dentro de um grupo (mês exibido, "página X de Y"). */
+.btn-grupo > .btn-rotulo {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--ink-2);
+  cursor: default;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   6. FORMULÁRIOS
+
+   As classes `.input` e `.select` são aplicadas pelos widgets do Django
+   (viagens/forms.py e colaboradores/forms.py). Mantê-las com esses nomes é
+   o acoplamento mínimo entre backend e folha de estilo.
+   ========================================================================== */
+
+.campo { display: flex; flex-direction: column; gap: var(--sp-2); }
+.campo + .campo { margin-top: var(--sp-4); }
+
+.rotulo {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ajuda {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.erro-campo {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--danger);
+}
+
+.input,
+.select,
+textarea {
+  width: 100%;
+  min-height: 36px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: var(--fs-base);
+  color: var(--ink);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.input::placeholder,
+textarea::placeholder { color: var(--ink-4); }
+
+.input:hover:not(:disabled),
+.select:hover:not(:disabled) { border-color: var(--ink-4); }
+
+.input:focus,
+.select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--brand-accent);
+  box-shadow: 0 0 0 3px rgba(17, 183, 78, 0.16);
+}
+
+.input:disabled,
+.select:disabled {
+  background: var(--surface-3);
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+/* Campo reprovado pela validação do servidor. A cor não é o único sinal:
+   a mensagem de erro em texto fica logo abaixo do campo. */
+.input.invalido,
+.select.invalido { border-color: var(--danger); }
+.input.invalido:focus,
+.select.invalido:focus { box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.14); }
+
+/* Seta própria do select: o desenho nativo varia demais entre navegadores.
+   Aspas internas do SVG codificadas (%22) para o valor caber numa linha CSS. */
+.select {
+  appearance: none;
+  padding-right: var(--sp-8);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 12 12%22%3E%3Cpath fill=%22none%22 stroke=%22%23475569%22 stroke-width=%221.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 d=%22M2.5 4.5 6 8l3.5-3.5%22/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--sp-3) center;
+  background-size: 12px;
+}
+
+/* Campo com botão encostado (senha, busca de colaborador). */
+.campo-composto { display: flex; }
+.campo-composto > .input { border-radius: var(--radius) 0 0 var(--radius); }
+.campo-composto > .btn {
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin-left: -1px;
+  flex-shrink: 0;
+}
+.campo-composto > .input:focus { position: relative; z-index: 1; }
+
+/* Linha de ações no rodapé de um formulário. */
+.form-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+}
+.form-acoes-fim { justify-content: flex-end; }
+
+/* ==========================================================================
+   7. PAINÉIS
+
+   Um painel agrupa um assunto. Não é enfeite: informação solta na página
+   não recebe painel só para virar cartão.
+   ========================================================================== */
+
+.painel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.painel-cabecalho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+.painel-cabecalho h2 {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.painel-cabecalho .descricao {
+  width: 100%;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-md);
+  color: var(--ink-3);
+}
+
+.painel-corpo { padding: var(--sp-5); }
+
+.painel-rodape {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+/* Bloco de dados somente-leitura dentro de um painel (resumo da reserva). */
+.resumo {
+  padding: var(--sp-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.resumo-grade {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: 1fr;
+  margin: 0;
+}
+@media (min-width: 640px) {
+  .resumo-grade { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .resumo-grade .col-2 { grid-column: span 2; }
+}
+.resumo dt {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.resumo dd {
+  margin: var(--sp-1) 0 0;
+  font-weight: 600;
+  word-break: break-word;
+}
+.resumo-destaque {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+  color: var(--ink-2);
+}
+.resumo-destaque strong {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  color: var(--ink);
+}
+
+/* Estado vazio: uma frase que diz o que aconteceu, sem ilustração. */
+.vazio {
+  padding: var(--sp-10) var(--sp-4);
+  text-align: center;
+  color: var(--ink-3);
+}
+
+/* ==========================================================================
+   8. TABELAS
+
+   Continuam tabelas em qualquer largura: os dados são tabulares e comparar
+   linhas é o objetivo. Em tela estreita a tabela rola horizontalmente dentro
+   do próprio contêiner, sem arrastar a página inteira.
+   ========================================================================== */
+
+.tabela-rolagem {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tabela { width: 100%; font-size: var(--fs-base); }
+
+.tabela th,
+.tabela td {
+  padding: var(--sp-3) var(--sp-4);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabela thead th {
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.tabela tbody tr:last-child td { border-bottom: none; }
+.tabela tbody tr { transition: background-color var(--t-fast); }
+.tabela tbody tr:hover { background: var(--brand-050); }
+
+.tabela tfoot th {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border-strong);
+  border-bottom: none;
+  font-weight: 700;
+}
+
+.tabela-compacta th,
+.tabela-compacta td { padding: var(--sp-2) var(--sp-3); }
+
+/* Números alinhados à direita e com dígitos de largura fixa: colunas de KM
+   e de percentual só são comparáveis de relance assim. */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mono { font-family: var(--font-mono); font-size: var(--fs-md); }
+.nowrap { white-space: nowrap; }
+.vazio-celula { color: var(--ink-4); }
+
+/* Nome longo não pode empurrar a tabela; o atributo title mostra o valor
+   completo, e a coluna continua previsível. */
+.truncar {
+  display: block;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   9. SINALIZADORES DE ESTADO
+
+   Estado nunca é indicado apenas por cor: cada variante carrega o texto do
+   estado ("Pendente", "Atrasada"), que é o que um leitor de tela anuncia e
+   o que um usuário com baixa visão de cor lê.
+   ========================================================================== */
+
+.selo {
+  display: inline-block;
+  padding: 2px var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.selo-neutro  { background: var(--surface-3); border-color: var(--border-strong); color: var(--ink-2); }
+.selo-sucesso { background: var(--success-bg); border-color: var(--success-border); color: var(--success); }
+.selo-alerta  { background: var(--warning-bg); border-color: var(--warning-border); color: var(--warning); }
+.selo-perigo  { background: var(--danger-bg);  border-color: var(--danger-border);  color: var(--danger); }
+.selo-marca   { background: var(--brand-100);  border-color: var(--brand);          color: var(--brand-dark); }
+
+/* Selo que também é link (ex.: Registrar chegada, na tabela de viagens). */
+a.selo:hover { text-decoration: none; filter: brightness(0.96); }
+
+/* Contador discreto ao lado de um título. */
+.contador {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   10. ALERTAS E MENSAGENS
+   ========================================================================== */
+
+.alerta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: var(--fs-base);
+}
+.alerta > span { flex: 1; min-width: 12rem; }
+.alerta + .alerta { margin-top: var(--sp-3); }
+
+.alerta-sucesso { background: var(--success-bg); border-color: var(--success-border); border-left-color: var(--success); }
+.alerta-erro    { background: var(--danger-bg);  border-color: var(--danger-border);  border-left-color: var(--danger); }
+.alerta-alerta  { background: var(--warning-bg); border-color: var(--warning-border); border-left-color: var(--warning); }
+.alerta-info    { background: var(--info-bg);    border-color: var(--info-border);    border-left-color: var(--info); }
+
+.alerta-pagina { margin-bottom: var(--sp-5); }
+
+/* Mensagens do Django. Ficam sobre o conteúdo, no canto superior direito;
+   em telas estreitas ocupam a largura disponível para não cobrir a barra. */
+.mensagens {
+  position: fixed;
+  top: calc(var(--topbar-h) + var(--sp-3));
+  right: var(--sp-4);
+  left: var(--sp-4);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  pointer-events: none;
+}
+.mensagens .alerta {
+  pointer-events: auto;
+  box-shadow: var(--shadow-lg);
+  margin: 0;
+}
+@media (min-width: 640px) {
+  .mensagens { left: auto; max-width: 26rem; }
+}
+
+/* ==========================================================================
+   11. JANELA MODAL (elemento dialog nativo)
+   ========================================================================== */
+
+dialog.modal {
+  width: min(34rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--ink);
+  background: var(--surface);
+}
+dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
+
+.modal-cabecalho { padding: var(--sp-5) var(--sp-5) 0; }
+.modal-cabecalho h2 { font-size: var(--fs-xl); font-weight: 600; }
+.modal-corpo { padding: var(--sp-4) var(--sp-5) var(--sp-5); }
+.modal-corpo > p { color: var(--ink-2); }
+.modal-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.modal-acoes form { margin: 0; }
+
+/* ==========================================================================
+   12. AGENDA
+
+   Duas apresentações do mesmo mês: grade de sete colunas no desktop e lista
+   dos dias com reserva no celular, onde sete colunas ficariam ilegíveis.
+   ========================================================================== */
+
+.agenda-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.calendario { display: none; }
+.calendario-lista { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+@media (min-width: 640px) {
+  .calendario {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .calendario-lista { display: none; }
+}
+
+.calendario-cabecalho {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.calendario-cabecalho span {
+  padding: var(--sp-2) var(--sp-1);
+  text-align: center;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.calendario-grade {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+}
+
+.dia {
+  position: relative;
+  min-height: 92px;
+  padding: var(--sp-1);
+  background: var(--surface);
+}
+.dia-fora { background: var(--surface-2); }
+.dia-fora .dia-numero { color: var(--ink-4); }
+/* Dia aberto na coluna da esquerda: contorno interno, sem deslocar a grade. */
+.dia-selecionado { box-shadow: inset 0 0 0 2px var(--brand-dark); }
+
+.dia-numero {
+  display: inline-block;
+  min-width: 22px;
+  margin-bottom: var(--sp-1);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: center;
+}
+.dia-numero:hover { background: var(--surface-3); text-decoration: none; }
+.dia-hoje .dia-numero { background: var(--brand-dark); color: #fff; }
+
+/* Reserva dentro de uma célula do calendário. */
+.dia-item {
+  display: block;
+  margin-bottom: 2px;
+  padding: 1px var(--sp-1);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--brand);
+  background: var(--brand-050);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dia-item:hover { background: var(--brand-100); text-decoration: none; }
+.dia-item-lancada { background: var(--surface-2); border-left-color: var(--border-strong); color: var(--ink-3); }
+.dia-item-atrasada { background: var(--danger-bg); border-left-color: var(--danger); color: var(--danger); }
+
+/* Lista de dias (celular). */
+.calendario-lista a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+.calendario-lista a:hover { background: var(--surface-2); text-decoration: none; }
+
+/* --- Fila de reservas do dia ------------------------------------------ */
+
+.reservas { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.reserva {
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.reserva-lancada { background: var(--surface-2); }
+
+.reserva-topo {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.reserva-identificacao { min-width: 0; }
+/* Sem truncar: o nome identifica a reserva. Nome longo quebra em duas
+   linhas e o bloco cresce, que é o mal menor. */
+.reserva-nome { font-weight: 600; overflow-wrap: anywhere; }
+.reserva-hora {
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  margin-right: var(--sp-1);
+}
+.reserva-detalhe {
+  margin-top: 2px;
+  font-size: var(--fs-md);
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.reserva .btn { margin-top: var(--sp-3); }
+.reserva-nota { margin-top: var(--sp-2); font-size: var(--fs-md); color: var(--ink-3); }
+.reserva-nota-alerta { color: var(--warning); font-weight: 500; }
+
+/* ==========================================================================
+   13. RATEIO DO FECHAMENTO
+   ========================================================================== */
+
+/* Dois números-resumo do período. Não são cartões: são um par de valores
+   com rótulo, encostados no título do painel. */
+.resumo-numeros {
+  display: flex;
+  gap: var(--sp-6);
+}
+.resumo-numero dt {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+.resumo-numero dd {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+.resumo-numero .unidade {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+/* Barra de participação por centro de custo. O percentual em número fica
+   ao lado: a barra é apoio visual, não a única forma de ler o valor. */
+.participacao {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 12rem;
+}
+.participacao progress {
+  appearance: none;
+  flex: 1;
+  height: 6px;
+  border: none;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+.participacao progress::-webkit-progress-bar {
+  background: var(--surface-3);
+  border-radius: 999px;
+}
+.participacao progress::-webkit-progress-value {
+  background: var(--brand-dark);
+  border-radius: 999px;
+}
+.participacao progress::-moz-progress-bar {
+  background: var(--brand-dark);
+  border-radius: 999px;
+}
+.participacao .valor {
+  width: 3.25rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   14. HISTÓRICO DE FECHAMENTOS
+
+   Cada fechamento usa details/summary nativos: abrem e fecham por teclado
+   sem JavaScript, e o navegador já anuncia o estado expandido.
+   ========================================================================== */
+
+.fechamentos { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.fechamento { border-radius: var(--radius-lg); }
+
+.fechamento > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-lg);
+}
+.fechamento > summary::-webkit-details-marker { display: none; }
+.fechamento > summary:hover { background: var(--surface-2); }
+.fechamento[open] > summary {
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.fechamento-periodo {
+  display: block;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.fechamento-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-md);
+  color: var(--ink-3);
+}
+/* O resumo alinha a seta no topo, para o bloco de duas linhas nao centralizar
+   de forma estranha quando o nome de quem fechou e longo. */
+.fechamento > summary .linha { align-items: flex-start; }
+.fechamento-seta { margin-top: 6px; }
+
+/* Indicador de aberto/fechado desenhado em CSS: sem arquivo de ícone e
+   girando junto com o estado do details. */
+.fechamento-seta {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-right: 2px solid var(--ink-3);
+  border-bottom: 2px solid var(--ink-3);
+  transform: rotate(45deg);
+  transition: transform var(--t);
+}
+.fechamento[open] .fechamento-seta { transform: rotate(-135deg); }
+
+.fechamento-direita {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+/* ==========================================================================
+   15. BUSCA DE COLABORADOR (autocomplete do lançamento de viagem)
+   ========================================================================== */
+
+.autocomplete { position: relative; }
+
+.autocomplete-lista {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+.autocomplete-lista-aberta { display: block; }
+
+.autocomplete-item {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-base);
+  cursor: pointer;
+}
+.autocomplete-item:hover,
+.autocomplete-item.ativo { background: var(--brand-050); }
+
+.autocomplete-vazio {
+  padding: var(--sp-3);
+  font-size: var(--fs-base);
+  color: var(--ink-3);
+}
+
+/* Seta do botão que abre a lista completa. Mesmo desenho do details. */
+.caret {
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+/* ==========================================================================
+   16. PAGINAÇÃO
+   ========================================================================== */
+
+.paginacao {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--sp-6);
+}
+
+/* ==========================================================================
+   17. INDICADOR DE CARREGAMENTO (HTMX)
+
+   O HTMX alterna a classe .htmx-request no elemento durante a requisição.
+   ========================================================================== */
+
+.htmx-indicator {
+  opacity: 0;
+  transition: opacity var(--t);
+}
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator { opacity: 1; }
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: girar 0.6s linear infinite;
+}
+
+@keyframes girar { to { transform: rotate(360deg); } }
+
+/* Aviso global de requisição em andamento, no canto inferior esquerdo. */
+.carregando-global {
+  position: fixed;
+  left: var(--sp-4);
+  bottom: var(--sp-4);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   18. TELA DE ACESSO
+
+   Única página não autenticada, e a única que conserva a fotografia de
+   fundo: é o momento de marca da aplicação. Nas telas internas o fundo dá
+   lugar a uma superfície neutra, porque ali o que importa é a leitura de
+   tabelas e formulários.
+   ========================================================================== */
+
+body.acesso {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--sp-6) var(--sp-4);
+  background-color: var(--brand-teal);
+  background-image:
+    linear-gradient(rgba(4, 67, 34, 0.72), rgba(4, 67, 34, 0.82)),
+    url("../images/background.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.acesso-caixa { width: 100%; max-width: 24rem; }
+
+.acesso-marca {
+  margin-bottom: var(--sp-5);
+  text-align: center;
+  color: #fff;
+}
+.acesso-marca img {
+  height: 44px;
+  width: auto;
+  margin: 0 auto var(--sp-4);
+}
+.acesso-marca h1 {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.acesso-marca p {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-base);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.acesso-painel {
+  padding: var(--sp-6);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.acesso-painel h2 {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  margin-bottom: var(--sp-5);
+}
+
+.acesso-rodape {
+  margin-top: var(--sp-5);
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ==========================================================================
+   19. AUXILIARES
+
+   Poucas e nomeadas pelo que fazem. A intenção não é reconstruir uma
+   biblioteca de utilitários: o que se repete vira componente.
+   ========================================================================== */
+
+.pilha { display: flex; flex-direction: column; gap: var(--sp-4); }
+.linha { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.entre { justify-content: space-between; }
+.centro-estreito { max-width: 44rem; margin: 0 auto; }
+.texto-apoio { font-size: var(--fs-md); color: var(--ink-3); }
+/* O filtro date:"F Y" do Django devolve o mês em minúsculas. */
+.capitalizar { text-transform: capitalize; }
+.mt-3 { margin-top: var(--sp-3); }
+.mt-4 { margin-top: var(--sp-4); }
+
+/* ==========================================================================
+   21. BARRAS DE FILTRO
+
+   Dois filtros com a mesma anatomia: campos à esquerda e a ação (ou o estado
+   da busca) à direita. Empilham em telas estreitas.
+   ========================================================================== */
+
+.filtro-periodo,
+.filtro-colaboradores {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: 1fr;
+}
+
+/* O botao alinha pela base dos campos, nao pelo topo do rotulo. */
+.filtro-periodo .btn { align-self: end; }
+
+@media (min-width: 640px) {
+  .filtro-periodo { grid-template-columns: 1fr 1fr auto; align-items: end; }
+  .filtro-colaboradores { grid-template-columns: minmax(0, 1fr) 14rem; align-items: end; }
+}
+
+/* Estado da busca ao vivo. Ocupa a linha inteira e é anunciado por
+   aria-live, para quem não vê o indicador girar. */
+.filtro-estado {
+  min-height: 1.25rem;
+  font-size: var(--fs-md);
+  color: var(--ink-3);
+}
+@media (min-width: 640px) {
+  .filtro-estado { grid-column: 1 / -1; }
+}
+.filtro-estado .spinner { vertical-align: -2px; }
+
+/* A tabela de colaboradores encosta nas bordas do painel: o filtro acima já
+   tem o respiro do .painel-corpo. */
+.painel > #tabela-colab .tabela-rolagem { border-top: 1px solid var(--border); }
+
+/* ==========================================================================
+   20. MOVIMENTO REDUZIDO E IMPRESSÃO
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  .sidebar,
+  .topbar,
+  .nav-overlay,
+  .mensagens,
+  .carregando-global,
+  .acoes-pagina,
+  .paginacao,
+  .form-acoes { display: none !important; }
+
+  .conteudo { margin-left: 0; }
+  .painel { border: 1px solid #999; box-shadow: none; }
+  body { background: #fff; }
+}

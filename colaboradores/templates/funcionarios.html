@@ -2,20 +2,26 @@
 
 {% block title %}Colaboradores — Controle de Veículos{% endblock %}
 
-{% block page_badge %}
-  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Cadastro</span>
-{% endblock %}
 {% block page_title %}Colaboradores{% endblock %}
 {% block page_subtitle %}
-  Cadastre novos colaboradores (vinculados a um centro de custo) ou inative
-  quem não viaja mais.
+  <p>
+    Cadastre novos colaboradores (vinculados a um centro de custo) ou inative
+    quem não viaja mais.
+  </p>
 {% endblock %}
 
 {% block content %}
 <div id="colab-content">
 
   {% if funcionario_mensagem or mensagem %}
-    <div role="alert" class="alert {% if tipo_mensagem == 'danger' %}alert-error{% else %}alert-{{ tipo_mensagem }}{% endif %} mb-6 shadow-lg">
+    {% comment %}
+      `tipo_mensagem` vem da view (colaboradores/views.py) como "success" ou
+      "danger". O mapeamento para as variantes do alerta fica aqui.
+    {% endcomment %}
+    <div
+      class="alerta alerta-{% if tipo_mensagem == 'danger' %}erro{% elif tipo_mensagem == 'success' %}sucesso{% else %}info{% endif %} alerta-pagina"
+      role="{% if tipo_mensagem == 'danger' %}alert{% else %}status{% endif %}"
+    >
       <span>
         {% if funcionario_mensagem %}<strong>{{ funcionario_mensagem }}</strong> {{ mensagem_acao }}{% endif %}
         {% if mensagem %}{{ mensagem }}{% endif %}
@@ -23,74 +29,83 @@
     </div>
   {% endif %}
 
-  <div class="grid items-start gap-6 lg:grid-cols-2">
-    <!-- Cadastrar -->
-    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-      <div class="card-body">
-        <h2 class="card-title">➕ Cadastrar colaborador</h2>
-        <p class="text-sm text-base-content/60">Todo colaborador que viaja pertence a um centro de custo.</p>
+  <div class="grade grade-2">
 
+    <section class="painel" aria-labelledby="titulo-cadastrar">
+      <div class="painel-cabecalho">
+        <h2 id="titulo-cadastrar">Cadastrar colaborador</h2>
+        <p class="descricao">Todo colaborador que viaja pertence a um centro de custo.</p>
+      </div>
+
+      <div class="painel-corpo">
         <form
           method="post"
           hx-post="{% url 'funcionarios' %}"
           hx-target="#colab-content"
           hx-select="#colab-content"
           hx-swap="outerHTML"
-          class="mt-2 space-y-4"
         >
           {% csrf_token %}
           <input type="hidden" name="acao" value="cadastrar" />
 
           {% for field in cadastro_form %}
-            <div class="form-control w-full">
-              <label class="label" for="{{ field.id_for_label }}">
-                <span class="label-text font-semibold">{{ field.label }}</span>
-              </label>
+            <div class="campo">
+              <label class="rotulo" for="{{ field.id_for_label }}">{{ field.label }}</label>
               {{ field }}
+              {% if field.help_text %}
+                <span class="ajuda">{{ field.help_text }}</span>
+              {% endif %}
               {% if field.errors %}
-                <span class="mt-1 text-sm text-error">{{ field.errors|striptags }}</span>
+                <span class="erro-campo">{{ field.errors|striptags }}</span>
               {% endif %}
             </div>
           {% endfor %}
 
-          <button type="submit" class="btn btn-primary btn-block">Cadastrar</button>
+          <div class="form-acoes">
+            <button type="submit" class="btn btn-primario btn-bloco">Cadastrar</button>
+          </div>
         </form>
       </div>
-    </div>
+    </section>
 
-    <!-- Inativar -->
-    <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-      <div class="card-body">
-        <h2 class="card-title">🚫 Inativar colaborador</h2>
-        <p class="text-sm text-base-content/60">Remove o colaborador da lista de quem pode viajar.</p>
+    <section class="painel" aria-labelledby="titulo-inativar">
+      <div class="painel-cabecalho">
+        <h2 id="titulo-inativar">Inativar colaborador</h2>
+        <p class="descricao">Remove o colaborador da lista de quem pode viajar.</p>
+      </div>
 
+      <div class="painel-corpo">
         <form
           method="post"
           hx-post="{% url 'funcionarios' %}"
           hx-target="#colab-content"
           hx-select="#colab-content"
           hx-swap="outerHTML"
-          class="mt-2 space-y-4"
         >
           {% csrf_token %}
           <input type="hidden" name="acao" value="inativar" />
 
           {% for field in inativar_form %}
-            <div class="form-control w-full">
-              <label class="label" for="{{ field.id_for_label }}">
-                <span class="label-text font-semibold">{{ field.label }}</span>
-              </label>
+            <div class="campo">
+              <label class="rotulo" for="{{ field.id_for_label }}">{{ field.label }}</label>
               {{ field }}
               {% if field.errors %}
-                <span class="mt-1 text-sm text-error">{{ field.errors|striptags }}</span>
+                <span class="erro-campo">{{ field.errors|striptags }}</span>
               {% endif %}
             </div>
           {% endfor %}
 
-          <button type="submit" class="btn btn-outline btn-error btn-block">Inativar</button>
+          {% comment %}
+            Ação destrutiva: contorno vermelho, e não preenchimento. Continua
+            claramente identificável, mas não compete com o botão principal
+            do painel ao lado.
+          {% endcomment %}
+          <div class="form-acoes">
+            <button type="submit" class="btn btn-perigo btn-bloco">Inativar</button>
+          </div>
         </form>
       </div>
-    </div>
+    </section>
   </div>
 </div>
 {% endblock %}

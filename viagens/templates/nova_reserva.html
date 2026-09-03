@@ -2,102 +2,93 @@
 
 {% block title %}Nova reserva — Controle de Veículos{% endblock %}
 
-{% block page_badge %}
-  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
-{% endblock %}
 {% block page_title %}Nova reserva{% endblock %}
 {% block page_subtitle %}
-  Cadastro manual, para a reserva que não veio do Outlook — pedido por
-  telefone, carro solicitado na hora ou caixa de recurso indisponível.
+  <p>
+    Cadastro manual, para a reserva que não veio do Outlook: pedido por
+    telefone, carro solicitado na hora ou caixa de recurso indisponível.
+  </p>
 {% endblock %}
 
 {% block content %}
-<div class="mx-auto w-full max-w-2xl">
-  <div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-    <div class="card-body">
+<div class="centro-estreito">
+  <section class="painel">
+    <div class="painel-corpo">
 
       <form method="post" novalidate>
         {% csrf_token %}
 
         {% if form.non_field_errors %}
-          <div class="alert alert-error mb-4">
+          <div class="alerta alerta-erro alerta-pagina" role="alert">
             <span>{{ form.non_field_errors|striptags }}</span>
           </div>
         {% endif %}
 
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div class="form-control sm:col-span-2">
-            <label class="label" for="{{ form.funcionario.id_for_label }}">
-              <span class="label-text font-semibold">{{ form.funcionario.label }}</span>
-            </label>
-            {{ form.funcionario }}
-            {% for erro in form.funcionario.errors %}
-              <span class="mt-1 text-sm text-error">{{ erro }}</span>
-            {% endfor %}
-          </div>
+        <div class="campo">
+          <label class="rotulo" for="{{ form.funcionario.id_for_label }}">{{ form.funcionario.label }}</label>
+          {{ form.funcionario }}
+          {% for erro in form.funcionario.errors %}
+            <span class="erro-campo">{{ erro }}</span>
+          {% endfor %}
+        </div>
 
-          <div class="form-control sm:col-span-2">
-            <label class="label" for="{{ form.veiculo.id_for_label }}">
-              <span class="label-text font-semibold">{{ form.veiculo.label }}</span>
-            </label>
-            {{ form.veiculo }}
-            {% for erro in form.veiculo.errors %}
-              <span class="mt-1 text-sm text-error">{{ erro }}</span>
-            {% endfor %}
-          </div>
+        <div class="campo">
+          <label class="rotulo" for="{{ form.veiculo.id_for_label }}">{{ form.veiculo.label }}</label>
+          {{ form.veiculo }}
+          {% for erro in form.veiculo.errors %}
+            <span class="erro-campo">{{ erro }}</span>
+          {% endfor %}
+        </div>
 
-          <div class="form-control sm:col-span-2">
-            <label class="label" for="{{ form.data.id_for_label }}">
-              <span class="label-text font-semibold">{{ form.data.label }}</span>
-            </label>
-            {{ form.data }}
-            {% for erro in form.data.errors %}
-              <span class="mt-1 text-sm text-error">{{ erro }}</span>
-            {% endfor %}
-          </div>
+        <div class="campo">
+          <label class="rotulo" for="{{ form.data.id_for_label }}">{{ form.data.label }}</label>
+          {{ form.data }}
+          {% for erro in form.data.errors %}
+            <span class="erro-campo">{{ erro }}</span>
+          {% endfor %}
+        </div>
 
-          <div class="form-control">
-            <label class="label" for="{{ form.hora_inicio.id_for_label }}">
-              <span class="label-text font-semibold">{{ form.hora_inicio.label }}</span>
-            </label>
+        {% comment %}
+          Início e fim lado a lado a partir de 768px: são um par, e ler um
+          sem o outro não faz sentido.
+        {% endcomment %}
+        <div class="grade grade-2 mt-4">
+          <div class="campo">
+            <label class="rotulo" for="{{ form.hora_inicio.id_for_label }}">{{ form.hora_inicio.label }}</label>
             {{ form.hora_inicio }}
             {% for erro in form.hora_inicio.errors %}
-              <span class="mt-1 text-sm text-error">{{ erro }}</span>
+              <span class="erro-campo">{{ erro }}</span>
             {% endfor %}
           </div>
 
-          <div class="form-control">
-            <label class="label" for="{{ form.hora_fim.id_for_label }}">
-              <span class="label-text font-semibold">{{ form.hora_fim.label }}</span>
-            </label>
+          <div class="campo">
+            <label class="rotulo" for="{{ form.hora_fim.id_for_label }}">{{ form.hora_fim.label }}</label>
             {{ form.hora_fim }}
             {% for erro in form.hora_fim.errors %}
-              <span class="mt-1 text-sm text-error">{{ erro }}</span>
-            {% endfor %}
-          </div>
-
-          <div class="sm:col-span-2 -mt-2">
-            <span class="text-xs text-base-content/60">{{ form.hora_inicio.help_text }}</span>
-          </div>
-
-          <div class="form-control sm:col-span-2">
-            <label class="label" for="{{ form.destino.id_for_label }}">
-              <span class="label-text font-semibold">{{ form.destino.label }}</span>
-            </label>
-            {{ form.destino }}
-            {% for erro in form.destino.errors %}
-              <span class="mt-1 text-sm text-error">{{ erro }}</span>
+              <span class="erro-campo">{{ erro }}</span>
             {% endfor %}
           </div>
         </div>
 
-        <div class="card-actions mt-6 justify-end gap-2">
-          <a href="{% url 'agenda' %}" class="btn btn-ghost">Cancelar</a>
-          <button type="submit" class="btn btn-primary">Criar reserva</button>
+        {% if form.hora_inicio.help_text %}
+          <p class="ajuda mt-3">{{ form.hora_inicio.help_text }}</p>
+        {% endif %}
+
+        <div class="campo mt-4">
+          <label class="rotulo" for="{{ form.destino.id_for_label }}">{{ form.destino.label }}</label>
+          {{ form.destino }}
+          {% for erro in form.destino.errors %}
+            <span class="erro-campo">{{ erro }}</span>
+          {% endfor %}
+        </div>
+
+        <div class="form-acoes form-acoes-fim">
+          <a href="{% url 'agenda' %}" class="btn btn-neutro">Cancelar</a>
+          <button type="submit" class="btn btn-primario">Criar reserva</button>
         </div>
       </form>
 
     </div>
-  </div>
+  </section>
 </div>
 {% endblock %}

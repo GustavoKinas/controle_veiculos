@@ -12,7 +12,7 @@ que só tem pendências mostrava "nenhuma viagem" e mais nada — silêncio no
 exato caso em que o operador mais precisa de informação.
 {% endcomment %}
 {% if rateio.quantidade_em_andamento %}
-  <div role="alert" class="alert alert-warning mt-2">
+  <div class="alerta alerta-alerta mt-3" role="status">
     <span>
       Há <strong>{{ rateio.quantidade_em_andamento }}</strong>
       viagem(ns) em andamento neste período, tem certeza que
@@ -22,12 +22,11 @@ exato caso em que o operador mais precisa de informação.
 {% endif %}
 
 {% if rateio.quantidade_reservas_pendentes %}
-  <div role="alert" class="alert alert-warning mt-2">
+  <div class="alerta alerta-alerta mt-3" role="status">
     <span>
       Há <strong>{{ rateio.quantidade_reservas_pendentes }}</strong>
-      reserva(s) <strong>pendente(s)</strong> neste período — Confira a
-      <a href="{% url 'agenda' %}" class="link font-semibold">agenda</a>
-      antes de fechar.
+      reserva(s) <strong>pendente(s)</strong> neste período. Confira a
+      <a href="{% url 'agenda' %}">agenda</a> antes de fechar.
     </span>
   </div>
 {% endif %}

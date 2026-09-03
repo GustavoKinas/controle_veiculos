@@ -10,18 +10,18 @@ class LancamentoViagemForm(forms.ModelForm):
         model = Viagem
         fields = ["funcionario", "veiculo", "data", "km_inicial", "km_final"]
         widgets = {
-            "funcionario": forms.Select(attrs={"class": "select select-bordered w-full"}),
+            "funcionario": forms.Select(attrs={"class": "select"}),
             "data": forms.DateInput(
-                attrs={"class": "input input-bordered w-full", "type": "date"},
+                attrs={"class": "input", "type": "date"},
                 format="%Y-%m-%d",
             ),
             "veiculo": forms.Select(
-                attrs={"class": "select select-bordered w-full"}
+                attrs={"class": "select"}
                 ),
 
             "km_inicial": forms.NumberInput(
                 attrs={
-                    "class": "input input-bordered w-full",
+                    "class": "input",
                     "min": 0,
                     "placeholder": "Ex.: 120340",
                 }
@@ -31,7 +31,7 @@ class LancamentoViagemForm(forms.ModelForm):
             # aceita km_final nulo).
             "km_final": forms.NumberInput(
                 attrs={
-                    "class": "input input-bordered w-full",
+                    "class": "input",
                     "min": 0,
                     "placeholder": "Em branco = veículo ainda na rua",
                 }
@@ -84,23 +84,23 @@ class ReservaManualForm(forms.ModelForm):
         model = ReservaViagem
         fields = ["funcionario", "veiculo", "data", "hora_inicio", "hora_fim", "destino"]
         widgets = {
-            "funcionario": forms.Select(attrs={"class": "select select-bordered w-full"}),
-            "veiculo": forms.Select(attrs={"class": "select select-bordered w-full"}),
+            "funcionario": forms.Select(attrs={"class": "select"}),
+            "veiculo": forms.Select(attrs={"class": "select"}),
             "data": forms.DateInput(
-                attrs={"class": "input input-bordered w-full", "type": "date"},
+                attrs={"class": "input", "type": "date"},
                 format="%Y-%m-%d",
             ),
             "hora_inicio": forms.TimeInput(
-                attrs={"class": "input input-bordered w-full", "type": "time"},
+                attrs={"class": "input", "type": "time"},
                 format="%H:%M",
             ),
             "hora_fim": forms.TimeInput(
-                attrs={"class": "input input-bordered w-full", "type": "time"},
+                attrs={"class": "input", "type": "time"},
                 format="%H:%M",
             ),
             "destino": forms.TextInput(
                 attrs={
-                    "class": "input input-bordered w-full",
+                    "class": "input",
                     "placeholder": "Ex.: Visita a cliente",
                 }
             ),
@@ -182,7 +182,7 @@ class LancamentoDeReservaForm(forms.Form):
         label="Quilometragem inicial",
         min_value=0,
         widget=forms.NumberInput(
-            attrs={"class": "input input-bordered w-full", "placeholder": "Ex.: 120340"}
+            attrs={"class": "input", "placeholder": "Ex.: 120340"}
         ),
     )
     km_final = forms.IntegerField(
@@ -191,7 +191,7 @@ class LancamentoDeReservaForm(forms.Form):
         required=False,
         help_text="Deixe em branco se o veículo ainda não retornou.",
         widget=forms.NumberInput(
-            attrs={"class": "input input-bordered w-full", "placeholder": "Opcional"}
+            attrs={"class": "input", "placeholder": "Opcional"}
         ),
     )
     funcionario = forms.ModelChoiceField(
@@ -199,7 +199,7 @@ class LancamentoDeReservaForm(forms.Form):
         label="Colaborador",
         required=False,
         empty_label="Selecione um colaborador",
-        widget=forms.Select(attrs={"class": "select select-bordered w-full"}),
+        widget=forms.Select(attrs={"class": "select"}),
     )
 
     def __init__(self, *args, reserva=None, **kwargs):
@@ -240,7 +240,7 @@ class RegistrarChegadaForm(forms.Form):
         min_value=0,
         widget=forms.NumberInput(
             attrs={
-                "class": "input input-bordered w-full",
+                "class": "input",
                 "placeholder": "KM do painel na chegada",
                 "autofocus": "autofocus",
             }
@@ -252,7 +252,7 @@ class FechamentoFiltroForm(forms.Form):
     data_inicio = forms.DateField(
         label="Data de início",
         widget=forms.DateInput(
-            attrs={"class": "input input-bordered w-full", "type": "date"},
+            attrs={"class": "input", "type": "date"},
             format="%Y-%m-%d",
         ),
         input_formats=["%Y-%m-%d"],
@@ -260,7 +260,7 @@ class FechamentoFiltroForm(forms.Form):
     data_fim = forms.DateField(
         label="Data de fim",
         widget=forms.DateInput(
-            attrs={"class": "input input-bordered w-full", "type": "date"},
+            attrs={"class": "input", "type": "date"},
             format="%Y-%m-%d",
         ),
         input_formats=["%Y-%m-%d"],

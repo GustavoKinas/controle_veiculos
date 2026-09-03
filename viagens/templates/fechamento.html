@@ -2,22 +2,18 @@
 
 {% block title %}Fechamento e rateio — Controle de Veículos{% endblock %}
 
-{% block page_badge %}
-  <span class="badge badge-primary badge-outline border-white/30 bg-brand/20 text-white">Controle de Viagens</span>
-{% endblock %}
 {% block page_title %}Fechamento e rateio de custos{% endblock %}
 {% block page_subtitle %}
-  Selecione um período, confira o rateio por centro de custo e confirme o
-  fechamento. Viagens já fechadas nunca entram novamente.
+  <p>
+    Selecione um período, confira o rateio por centro de custo e confirme o
+    fechamento. Viagens já fechadas nunca entram novamente.
+  </p>
 {% endblock %}
 
 {% block content %}
 
 {% if fechamento_concluido %}
-  <div role="alert" class="alert alert-success mb-6 shadow-lg">
-    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
+  <div class="alerta alerta-sucesso alerta-pagina" role="status">
     <span>
       Fechamento de {{ fechamento_concluido.data_inicio|date:"d/m/Y" }} a
       {{ fechamento_concluido.data_fim|date:"d/m/Y" }} concluído —
@@ -28,19 +24,24 @@
       detalhamento das viagens é conferência. Juntá-los num arquivo só faria
       o do ERP deixar de ser uma tabela.
     {% endcomment %}
-    <a class="btn btn-sm" href="{% url 'fechamento_exportar' fechamento_concluido.pk %}">📊 Rateio (CSV)</a>
-    <a class="btn btn-sm btn-outline" href="{% url 'fechamento_exportar_viagens' fechamento_concluido.pk %}">🚗 Viagens (CSV)</a>
+    <span class="linha">
+      <a class="btn btn-secundario btn-sm" href="{% url 'fechamento_exportar' fechamento_concluido.pk %}">
+        Baixar rateio (CSV)
+      </a>
+      <a class="btn btn-secundario btn-sm" href="{% url 'fechamento_exportar_viagens' fechamento_concluido.pk %}">
+        Baixar viagens (CSV)
+      </a>
+    </span>
   </div>
 {% endif %}
 
-<!-- Filtro de período -->
-<div class="card border border-white/20 bg-base-100/90 shadow-xl backdrop-blur-md">
-  <div class="card-body">
-    <h2 class="card-title">Período</h2>
-    <p class="text-sm text-base-content/60">
-      Considera apenas viagens em aberto dentro do intervalo escolhido.
-    </p>
+<section class="painel" aria-labelledby="titulo-periodo">
+  <div class="painel-cabecalho">
+    <h2 id="titulo-periodo">Período</h2>
+    <p class="descricao">Considera apenas viagens em aberto dentro do intervalo escolhido.</p>
+  </div>
 
+  <div class="painel-corpo">
     <form
       method="get"
       hx-get="{% url 'fechamento' %}"
@@ -49,29 +50,29 @@
       hx-swap="outerHTML"
       hx-push-url="true"
       hx-indicator="#rateio-loading"
-      class="mt-2 grid gap-4 sm:grid-cols-3 sm:items-end"
+      class="filtro-periodo"
     >
-      <label class="form-control w-full">
-        <span class="label-text mb-1 font-semibold">{{ form.data_inicio.label }}</span>
+      <div class="campo">
+        <label class="rotulo" for="{{ form.data_inicio.id_for_label }}">{{ form.data_inicio.label }}</label>
         {{ form.data_inicio }}
-      </label>
-      <label class="form-control w-full">
-        <span class="label-text mb-1 font-semibold">{{ form.data_fim.label }}</span>
+      </div>
+      <div class="campo">
+        <label class="rotulo" for="{{ form.data_fim.id_for_label }}">{{ form.data_fim.label }}</label>
         {{ form.data_fim }}
-      </label>
-      <button type="submit" class="btn btn-primary">
-        <span class="loading loading-spinner loading-sm htmx-indicator" id="rateio-loading"></span>
-        🔎 Calcular rateio
+      </div>
+      <button type="submit" class="btn btn-primario">
+        <span class="spinner htmx-indicator" id="rateio-loading" aria-hidden="true"></span>
+        Calcular rateio
       </button>
     </form>
 
     {% if form.non_field_errors %}
-      <div class="mt-3 text-sm text-error">{{ form.non_field_errors|striptags }}</div>
+      <p class="erro-campo mt-3">{{ form.non_field_errors|striptags }}</p>
     {% endif %}
   </div>
-</div>
+</section>
 
-<!-- Painel do rateio (alvo do HTMX) -->
+{% comment %} Painel do rateio: alvo dos swaps HTMX. {% endcomment %}
 {% include 'viagens/partials/_rateio.html' %}
 
 {% endblock %}

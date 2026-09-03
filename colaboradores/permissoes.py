@@ -57,9 +57,9 @@ PERMISSOES_POR_PERFIL: dict[str, list[str]] = {
         PERM_LANCAR_VIAGEM,
         PERM_GERENCIAR_RESERVAS,
         #PERM_REALIZAR_FECHAMENTO,
-        PERM_VER_COLABORADOR,
-        PERM_ADICIONAR_COLABORADOR,
-        PERM_ALTERAR_COLABORADOR,
+        #PERM_VER_COLABORADOR,
+        #PERM_ADICIONAR_COLABORADOR,
+        #PERM_ALTERAR_COLABORADOR,
     ],
     # Exclusivamente fechamento: sem lançamento, sem agenda, sem cadastro.
     GRUPO_FINANCEIRO: [
