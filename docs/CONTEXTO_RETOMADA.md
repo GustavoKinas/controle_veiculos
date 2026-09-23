@@ -4,7 +4,7 @@
 > outros documentos) — ele diz **onde o trabalho parou**, o que já foi decidido
 > e não deve ser rediscutido, e as armadilhas que já custaram tempo.
 
-Atualizado em **14/08/2026**.
+Atualizado em **23/09/2026**.
 
 ---
 
@@ -30,6 +30,8 @@ Django 6.0.5 · PostgreSQL · templates server-side com Tailwind (CDN) + DaisyUI
 | Documento | O que traz |
 |---|---|
 | **este arquivo** | estado atual, decisões fechadas, armadilhas, o que vem a seguir |
+| [`superpowers/specs/2026-09-22-sincronizacao-funcionarios-erp-design.md`](superpowers/specs/2026-09-22-sincronizacao-funcionarios-erp-design.md) | desenho aprovado da sincronização ERP |
+| [`superpowers/plans/2026-09-23-sincronizacao-funcionarios-erp-plano.md`](superpowers/plans/2026-09-23-sincronizacao-funcionarios-erp-plano.md) | plano detalhado de implementação da sincronização ERP — **aprovado, é o que está em andamento agora** |
 | [`../DEVELOPMENT.md`](../DEVELOPMENT.md) | arquitetura, modelos, URLs, decisões de projeto e o porquê de cada uma |
 | [`PRE_CADASTRO_VIAGENS.md`](PRE_CADASTRO_VIAGENS.md) | desenho completo do pré-cadastro/agenda e da integração (5 fases) |
 | [`UTILIZACOES_DO_SISTEMA.md`](UTILIZACOES_DO_SISTEMA.md) | manual de operação: usuários, permissões, sync, lançamento, fechamento |
@@ -43,19 +45,27 @@ Django 6.0.5 · PostgreSQL · templates server-side com Tailwind (CDN) + DaisyUI
 
 **As 5 fases do pré-cadastro estão implementadas, e sobre elas foram
 construídos: perfis de acesso, reserva manual, sync pela tela, exportação em
-CSV para o ERP e o deploy dockerizado.** 171 testes passando (27 são
-esqueletos de estudo com `skipTest`, 1 é `@expectedFailure` documentando
-dívida conhecida).
+CSV para o ERP e o deploy dockerizado.** A estrutura inicial da sincronização
+de funcionários pelo ERP também foi iniciada: identidade ERP, código da
+empresa nas unidades fabris, catálogos de departamento/seção e carga pelo
+CSV real já estão implementados.
+
+A suíte completa executada em SQLite teve 176 testes: 27 esqueletos de estudo
+com `skipTest`, 1 `@expectedFailure` e 1 falha antiga no teste
+`ViagemEmAndamentoTest.test_aviso_aparece_no_modal_de_confirmacao`, que também
+falha isoladamente com resposta 302. Os testes focados da frente ERP passam.
 
 ```
-python manage.py test          →  OK (171 testes)
+python manage.py test          →  1 falha antiga (ver acima)
 python manage.py check         →  sem problemas
 makemigrations --check         →  No changes detected
 docker compose config          →  válido
 ```
 
-Migrations aplicadas: `viagens` até `0009_permissoes_de_perfil`,
-`colaboradores` até `0002_funcionario_uniq_funcionario_por_email`.
+Migrations existentes no código: `viagens` até `0009_permissoes_de_perfil`,
+`colaboradores` até `0005_departamento_secao_funcionario_catalogos`. O banco
+real precisa executar `python manage.py migrate` antes de usar os novos
+campos.
 
 ### O que foi feito em 14/08
 
@@ -67,6 +77,114 @@ Migrations aplicadas: `viagens` até `0009_permissoes_de_perfil`,
 | **Bug corrigido:** veículo podia ser reservado duas vezes no mesmo horário | `ReservaViagem.clean()`, `periodos_se_sobrepoem()` |
 | **Aviso de reservas pendentes** no fechamento | `_pendencias_do_periodo.html` |
 | **Deploy dockerizado** — nginx :5009 + scheduler de 15 min | `docker-compose.yml`, `scheduler.sh`, `docs/DEPLOY.md` |
+
+### Avanço em 15–16/09/2026 — base da sincronização ERP
+
+| Frente | Onde |
+|---|---|
+| **Código ERP do funcionário** — campo opcional/indexado; identidade composta com a unidade | `Funcionario.codigo_funcionario_erp`, migration `0003` |
+| **Código ERP da empresa** — campo opcional e único por Unidade Fabril | `UnidadeFabril.codigo_empresa_erp`, migration `0004` |
+| **Catálogos ERP** — Departamento e Seção; seção é única dentro do departamento | `Departamento`, `Secao`, migration `0005` |
+| **Vínculos no funcionário** — Departamento e Seção opcionais para legados | `Funcionario.departamento`, `Funcionario.secao` |
+| **Admin** — códigos, catálogos e novos vínculos visíveis | `colaboradores/admin.py` |
+| **Carga inicial pelo CSV** — aceita `funcionarios.csv` real e o formato antigo | `cadastro_funcionarios.py`, `colaboradores/tests.py` |
+
+O arquivo `colaboradores/management/commands/funcionarios.csv` tem 207
+registros e está em UTF-8 com BOM. O command resolve `Código Empresa` pelo
+`UnidadeFabril.codigo_empresa_erp`, grava `Funcionário` em
+`codigo_funcionario_erp`, cria automaticamente 4 departamentos e 38 seções e
+permite códigos de funcionário repetidos em empresas diferentes. O nome
+duplicado de LEODATO CHRISTIANO JUNKES foi mantido em dois cadastros, conforme
+decisão operacional do usuário.
+
+Uma segunda execução no mesmo banco temporário produziu 0 cadastros, 0
+atualizações e 207 registros já existentes.
+
+### Avanço em 22/09/2026 — desenho da sincronização ERP aprovado
+
+Foi lida e discutida a documentação de referência
+`DOCUMENTACAO_SINCRONIZACAO_FUNCIONARIOS_ERP.md`. O desenho específico para
+este projeto foi aprovado, mas **a sincronização pela API ainda não foi
+implementada**.
+
+A especificação está em
+[`superpowers/specs/2026-09-22-sincronizacao-funcionarios-erp-design.md`](superpowers/specs/2026-09-22-sincronizacao-funcionarios-erp-design.md).
+O arquivo é novo e ainda não foi commitado porque o `.git` estava montado
+como somente leitura; não tentar incluir as alterações pré-existentes do
+usuário no commit.
+
+### Avanço em 23/09/2026 — sincronização ERP implementada
+
+O plano detalhado está em
+[`superpowers/plans/2026-09-23-sincronizacao-funcionarios-erp-plano.md`](superpowers/plans/2026-09-23-sincronizacao-funcionarios-erp-plano.md).
+**A implementação foi concluída nesta sessão** (a pedido explícito do
+usuário — "quem vai implementar é você" —, uma exceção ao padrão geral do
+projeto descrito na §8; ver [`superpowers/plans/...-plano.md`](superpowers/plans/2026-09-23-sincronizacao-funcionarios-erp-plano.md)
+§10–12 para o detalhamento das decisões tomadas ao codar).
+
+| Frente | Onde |
+|---|---|
+| Migration `data_admissao`/`data_demissao` em `Funcionario` | `colaboradores/migrations/0006_...py` |
+| Cliente HTTP do ERP (borda, sem conhecer models) | `colaboradores/integracoes/erp.py` |
+| Serviço de sincronização (regra de negócio) | `colaboradores/sincronizacao_erp.py` |
+| Comando de linha de comando | `colaboradores/management/commands/sincronizar_funcionarios_erp.py` |
+| Botão protegido no Admin (GET confirma, POST executa) | `colaboradores/admin.py`, `colaboradores/templates/admin/colaboradores/funcionario/` |
+| Cron real no container (4 horários fixos, seg-sex) | `docker/cron/`, `Dockerfile`, serviço `scheduler-erp` em `docker-compose.yml` |
+| Variáveis novas | `.env` — `ERP_FUNCIONARIOS_API_URL`, `ERP_FUNCIONARIOS_API_TOKEN` (vazio, falta preencher), `ERP_FUNCIONARIOS_API_TIMEOUT` |
+
+Decisão fechada nesta sessão: o agendamento usa **cron real** dentro de um
+container novo (`scheduler-erp`), não o laço `sleep` do `scheduler.sh` — o
+laço serve bem para intervalo (Outlook, a cada 15 min), mas não para
+horário de relógio fixo. É a primeira vez que o projeto usa cron.
+
+⚠️ **Lacuna do desenho resolvida por decisão própria, não pelo usuário:**
+o desenho aprovado em 22/09 não dizia o que fazer quando uma **demissão**
+retorna um código ERP que não existe localmente. Foi implementado criar o
+registro já inativo (simétrico à admissão). **Precisa ser confirmado com o
+usuário** — ver a nota no topo de `colaboradores/sincronizacao_erp.py`.
+
+Verificação rodada nesta sessão: `python manage.py test` (206 testes, 30
+novos — só a falha antiga documentada continua falhando),
+`python manage.py check`, `makemigrations --check` (sem mudanças) e
+`docker compose build web` (a imagem builda, `check` roda dentro dela,
+`docker compose config` valida o `scheduler-erp`). **Não testado:** chamada
+real à API do ERP (falta o token) e o primeiro disparo real do cron nos 4
+horários — só o formato do arquivo dentro da imagem foi conferido.
+
+⚠️ **Ainda falta rodar a migration no banco real** (`python manage.py
+migrate`) antes de usar os campos novos, e preencher
+`ERP_FUNCIONARIOS_API_TOKEN` no `.env` antes de disparar a sincronização de
+verdade.
+
+Decisões confirmadas para a API:
+
+| Item | Decisão |
+|---|---|
+| Endpoint | `https://10.1.1.220/api/funcionarios/v10/informacoes` |
+| Consultas | `dataAdmissao=AAAAMM` e `dataDemissao=AAAAMM`, sempre as duas |
+| Header | `empresa` com `1` Matriz, `2` Filial MG ou `20` EVO; `Authorization` com token bruto |
+| Segurança | token no `.env`; SSL explicitamente desabilitado; timeout de 300 s; sem retry |
+| Agenda | `America/Sao_Paulo`; admissões 07:15 e 18:15; demissões 07:20 e 18:20, segunda a sexta |
+| Admin | botão apenas para superusuários; executa as duas operações do mês corrente e mostra resumo/erros |
+| Identidade | `unidade_fabril + codigo_funcionario_erp`; sem vínculo por nome |
+| Legados | CLT recebe código manualmente; PJ sem código ERP e manutenção manual |
+| Novos usuários | reutilizam `gerar_username(nome)` e recebem senha inutilizável; username existente não muda |
+
+Campos novos planejados em `Funcionario`: `data_admissao` e
+`data_demissao`, ambos `null=True, blank=True`. O ERP não atualizará e-mail,
+cargo, carteira de saúde ou dependentes.
+
+Regras principais: admissões são processadas antes de demissões; admissão
+atualiza apenas `data_admissao`, demissão apenas `data_demissao`; data vazia
+limpa o campo correspondente; funcionário retornado em `dataDemissao` é
+inativado; ausência na resposta não inativa ninguém; falha de uma empresa,
+operação ou registro não interrompe os demais.
+
+Centros de custo usam `codCentroCusto` como `CentroCusto.codigo` e
+`centroCusto` como descrição. Centros inexistentes são criados e descrições
+divergentes são atualizadas. Centro de custo, departamento ou seção vazios
+preservam o vínculo local; departamentos e seções também são criados ou
+atualizados quando presentes.
 
 ### Banco de desenvolvimento
 
@@ -115,10 +233,29 @@ apagadas (ex.: `RLN1J19` com 110.588 km). É o comportamento projetado — o
 recompute preserva o valor do cadastro quando não há viagens — mas hoje é
 lixo, e vira o **piso** da primeira viagem real de cada veículo.
 
-### Tudo commitado e no GitHub
+### Avanço em 14/09/2026 — integração com o AD adiada
 
-Árvore limpa e `main` sincronizada com `origin` — nada pendente de push.
-O último commit é `50e7572` ("Aplicação preparada para Deploy").
+Foi iniciada a descoberta técnica para a integração com o Active Directory,
+seguindo o padrão corporativo documentado na skill
+`active-directory-integration`. A investigação confirmou que a aplicação ainda
+usa o login local nativo do Django: não há dependência LDAP, backend de
+autenticação de diretório, campos de vínculo no model ou configuração de
+LDAPS. **Nenhuma alteração de código, modelo ou infraestrutura foi feita para
+o AD.**
+
+A decisão para a retomada é implementar primeiro a **sincronização de
+funcionários com a API do ERP**. O objetivo é manter o cadastro local o mais
+atualizado possível com a lista de funcionários antes de iniciar a integração
+com o AD. A sincronização com o AD fica deliberadamente adiada até essa etapa
+ser concluída; não reabrir a implementação do AD antes disso.
+
+### Estado do Git
+
+O último commit continua sendo `50e7572` ("Aplicação preparada para
+Deploy"), mas a frente ERP desta retomada **ainda não foi commitada**. Há
+alterações locais em models, Admin, command, testes e migrations. As
+alterações pré-existentes do usuário em `DEVELOPMENT.md`, `ESTUDO.md` e
+`docs/CONTEXTO_RETOMADA.md` devem ser preservadas.
 
 Marcos do histórico, do mais recente para o mais antigo:
 
@@ -164,6 +301,14 @@ Cada uma custou discussão e está justificada no documento indicado.
 | Sobreposição de reserva vive em `Model.clean()`, **sem** constraint de banco | `DEVELOPMENT.md` §3.9 |
 | Sync **não** é barrado pela regra de sobreposição (Outlook é a fonte da verdade) | `DEVELOPMENT.md` §3.9 |
 | Deploy: só o nginx publica porta; `DATABASE_URL` sobreposto pelo compose | `DEPLOY.md` §3 |
+| `UnidadeFabril.codigo_empresa_erp` é a chave para a coluna `Código Empresa` do CSV | `colaboradores/models.py`, `cadastro_funcionarios.py` |
+| Identidade do funcionário ERP é `unidade_fabril + codigo_funcionario_erp`; o código pode repetir entre empresas | migration `0005`, `cadastro_funcionarios.py` |
+| Seção é comparada dentro do Departamento; a mesma descrição em departamentos diferentes gera registros distintos | `Secao`, constraint `uniq_secao_por_departamento` |
+| O CSV ERP cria Departamento e Seção automaticamente e preserva e-mail/centro de custo quando ausentes em uma atualização | `cadastro_funcionarios.py` |
+| Sincronização ERP usa `select_for_update()` por registro, sem lock global do Postgres | `colaboradores/sincronizacao_erp.py` |
+| Sincronização ERP: cron real num container próprio (`scheduler-erp`), não o laço `sleep` do `scheduler.sh` | `docker/cron/`, `docker-compose.yml` |
+| Botão de sincronização ERP no Admin: GET só confirma, POST executa | `colaboradores/admin.py` |
+| Demissão de código ERP desconhecido cria funcionário já inativo (decisão própria, lacuna do desenho — revisar com o usuário) | `colaboradores/sincronizacao_erp.py` |
 
 ---
 
@@ -241,6 +386,21 @@ interpolada dentro de uma URL; `@`, `/`, `#`, `?` e `:` atrapalham a análise.
 A senha atual de desenvolvimento termina com `@` e funciona só porque o
 `urlsplit` separa no último `@` — não conte com isso em produção.
 
+**O CSV `funcionarios.csv` é UTF-8 com BOM.** O command
+`cadastro_funcionarios` usa `utf-8-sig` por padrão e aceita `--encoding cp1252`
+para exportações antigas do Excel. A coluna `Código Empresa` não é o nome da
+unidade: ela deve encontrar uma `UnidadeFabril.codigo_empresa_erp` já
+cadastrada.
+
+**Código de funcionário ERP não é único globalmente.** O arquivo real repete
+códigos em empresas diferentes; nunca faça lookup somente por
+`codigo_funcionario_erp`. Use sempre a combinação com a unidade fabril.
+
+**O command de carga inicial pode criar dois funcionários com o mesmo nome.**
+Isso ocorre quando as identidades ERP são diferentes, como no caso do
+proprietário presente em duas empresas. Não reintroduza uma trava global por
+nome sem antes resolver essa regra de negócio.
+
 ---
 
 ## 6. Como rodar
@@ -259,10 +419,12 @@ python manage.py createsuperuser                   # quem administra o sistema
 python manage.py criar_portaria --senha ...        # nunca dá /admin (o --superuser foi removido)
 python manage.py criar_financeiro --senha ...      # só fechamento
 
-# Unidades fabris ANTES dos colaboradores: sem elas o cadastro pula todo mundo
-python manage.py shell -c "from colaboradores.models import UnidadeFabril; [UnidadeFabril.objects.get_or_create(nome=n) for n in ['Matriz','Filial MG','EVO']]"
+# Migrations e unidades fabris ANTES dos colaboradores. Os códigos precisam
+# corresponder à coluna Código Empresa do CSV ERP.
+python manage.py migrate
+python manage.py shell -c "from colaboradores.models import UnidadeFabril; [UnidadeFabril.objects.get_or_create(nome=n, defaults={'codigo_empresa_erp': c}) for n,c in [('Matriz',1),('Filial MG',2),('EVO',20)]]"
 python manage.py cadastro_centro_custo colaboradores/management/commands/cc.csv
-python manage.py cadastro_funcionarios colaboradores/management/commands/funcionarios_total_com_email.csv
+python manage.py cadastro_funcionarios colaboradores/management/commands/funcionarios.csv
 
 # Integração com o Outlook
 python manage.py cadastrar_veiculos_salas          # andaime — ver ressalva na §3
@@ -274,6 +436,7 @@ python manage.py sincronizar_reservas --dias 30
 
 ```bash
 docker compose up -d --build       # nginx em http://localhost:5009
+docker compose exec web python manage.py migrate
 docker compose logs -f scheduler   # o sync de 15 em 15 min
 docker compose exec web python manage.py sincronizar_reservas --dry-run
 ```
@@ -316,26 +479,44 @@ de verdade, remova `PERM_REALIZAR_FECHAMENTO` da lista do `GRUPO_PORTARIA` em
 
 Em ordem aproximada de valor.
 
-1. **Subir no servidor Ubuntu.** Tudo está commitado e no GitHub; falta
-   executar o `DEPLOY.md`. Ao transferir o `.env` por FTP, **quatro linhas
+1. **Validar a sincronização de funcionários com o ERP contra o servidor
+   real** — o código está implementado e testado (ver avanço de 23/09/2026),
+   mas nunca rodou contra `https://10.1.1.220/...` de verdade. Preencher
+   `ERP_FUNCIONARIOS_API_TOKEN` no `.env`, rodar a migration no banco real,
+   testar `sincronizar_funcionarios_erp` manualmente (as duas operações,
+   separadas), só depois confiar no cron. Também **decidir com o usuário** a
+   lacuna do desenho sobre demissão de código desconhecido (ver nota acima e
+   no topo de `colaboradores/sincronizacao_erp.py`). Depois de validado, o
+   cadastro local deve estar atualizado com a lista do ERP antes de avançar
+   para qualquer integração com o AD.
+2. **Depois da sincronização do ERP, implementar a integração com o AD.** A
+   descoberta já foi feita, mas a autenticação por AD está deliberadamente
+   bloqueada até o banco local estar o mais atualizado possível. O AD não deve
+   ser tratado como mecanismo de sincronização de funcionários.
+3. **Subir no servidor Ubuntu.** A base anterior está no GitHub, mas a frente
+   ERP desta retomada ainda não foi commitada; falta executar o `DEPLOY.md`
+   depois de revisar essas alterações. Ao transferir o `.env` por FTP, **quatro linhas
    precisam mudar** (§3 do DEPLOY): `DEBUG=False`, `ALLOWED_HOSTS` com o IP do
    servidor, `CSRF_TRUSTED_ORIGINS` com `http://IP:5009` e uma
    `DJANGO_SECRET_KEY` nova. Sem elas a aplicação não sobe ou não deixa logar.
-2. **Testar as telas com um usuário da portaria de verdade**, e não com o
+4. **Testar as telas com um usuário da portaria de verdade**, e não com o
    `administrador` — superusuário ignora permissão, então o controle de acesso
    da portaria nunca foi exercitado pela porta da frente.
-3. **Zerar os hodômetros e os dados de teste** antes de considerar o banco de
+5. **Zerar os hodômetros e os dados de teste** antes de considerar o banco de
    desenvolvimento confiável: há 7 viagens e 2 fechamentos de teste.
-4. **Caça aos bugs do `ESTUDO.md`** — 7 itens abertos, sendo os dois primeiros
+6. **Caça aos bugs do `ESTUDO.md`** — 7 itens abertos, sendo os dois primeiros
    os que mais importam: viagem retroativa lançada depois do fechamento fica
    órfã, e nada impede fechamentos com períodos sobrepostos.
-5. **Colaboradores da EVO sem centro de custo** (ex.: ADONIRAM AMARAL ROCHA,
+7. **Colaboradores da EVO sem centro de custo** (ex.: ADONIRAM AMARAL ROCHA,
    e-mail `@evo.ind.br`). Se essas pessoas reservam carro, precisam de centro
    de custo para conseguir lançar viagem.
-6. **Reservas de dia inteiro que cruzam vários dias** viram uma reserva só,
+8. **Reservas de dia inteiro que cruzam vários dias** viram uma reserva só,
    na data de início. Se isso importar, o modelo precisa de data de fim.
-7. **Backup automatizado** do Postgres no servidor (cron no host chamando o
+9. **Backup automatizado** do Postgres no servidor (cron no host chamando o
    `pg_dump` do `DEPLOY.md` §9) — hoje não existe.
+10. **Investigar a falha isolada da suíte** em
+    `ViagemEmAndamentoTest.test_aviso_aparece_no_modal_de_confirmacao`, que
+    retorna 302 em SQLite mesmo quando executada sozinha.
 
 ---
 

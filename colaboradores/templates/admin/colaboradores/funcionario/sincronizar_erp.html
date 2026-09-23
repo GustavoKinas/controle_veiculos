@@ -1,0 +1,37 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<p>
+  Executa admissão e demissão do mês corrente para as empresas Matriz,
+  Filial MG e EVO. Não pode ser desfeito.
+</p>
+
+{% if resultado %}
+  <h2>Resultado — período {{ resultado.periodo }}</h2>
+  <p>
+    Empresas processadas: {{ resultado.empresas_processadas }} —
+    com falha: {{ resultado.empresas_com_falha }}
+  </p>
+  <ul>
+    {% for rotulo, quantidade in resultado.resumo.items %}
+      <li>{{ rotulo }}: {{ quantidade }}</li>
+    {% endfor %}
+  </ul>
+
+  {% if resultado.erros %}
+    <h3>Erros</h3>
+    <ul>
+      {% for erro in resultado.erros %}
+        <li>{{ erro }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <p><a href="{% url 'admin:colaboradores_funcionario_changelist' %}">Voltar</a></p>
+{% else %}
+  <form method="post">
+    {% csrf_token %}
+    <input type="submit" class="default" value="Confirmar sincronização">
+  </form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,14 @@
+# Sincronização de funcionários com o ERP — 4 horários fixos, seg-sex.
+#
+# Admissão às 07:15 e 18:15; demissão às 07:20 (cinco minutos depois, para
+# não disputar o mesmo minuto com a admissão) e às 18:20. Ordem importa
+# quando rodam próximas uma da outra: admissão sempre antes de demissão.
+#
+# O stdout/stderr vão para os descritores do PID 1 do container (o próprio
+# cron, ver run-sincronizar-funcionarios-erp) — é o que faz
+# `docker compose logs` mostrar a execução; sem isso o cron registra só no
+# syslog interno, que ninguém olha.
+CRON_TZ=America/Sao_Paulo
+
+15 7,18 * * 1-5 root /usr/local/bin/run-sincronizar-funcionarios-erp python manage.py sincronizar_funcionarios_erp --operacao admissao >> /proc/1/fd/1 2>> /proc/1/fd/2
+20 7,18 * * 1-5 root /usr/local/bin/run-sincronizar-funcionarios-erp python manage.py sincronizar_funcionarios_erp --operacao demissao >> /proc/1/fd/1 2>> /proc/1/fd/2

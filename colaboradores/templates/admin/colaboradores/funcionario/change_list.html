@@ -1,0 +1,12 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  {% if request.user.is_superuser %}
+    <li>
+      <a href="{% url 'admin:colaboradores_funcionario_sincronizar_erp' %}" class="button">
+        Sincronizar com o ERP
+      </a>
+    </li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

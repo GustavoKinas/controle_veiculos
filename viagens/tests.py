@@ -37,8 +37,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from django.contrib.auth.models import Group, Permission
+from django.contrib import admin
 
-from colaboradores.models import CentroCusto, Funcionario
+from colaboradores.admin import FuncionarioAdmin
+from colaboradores.models import CentroCusto, Funcionario, UnidadeFabril
 from colaboradores.permissoes import (
     GRUPO_FINANCEIRO,
     GRUPO_PORTARIA,
@@ -173,6 +175,47 @@ class BaseViagensTest(TestCase):
         }
         dados.update(kwargs)
         return dados
+
+
+class FuncionarioCodigoERPTest(TestCase):
+    def test_funcionario_pode_ser_criado_com_codigo_erp(self):
+        funcionario = Funcionario.objects.create(
+            username="ana.souza",
+            nome="ANA SOUZA",
+            codigo_funcionario_erp="518",
+        )
+
+        funcionario.refresh_from_db()
+
+        self.assertEqual(funcionario.codigo_funcionario_erp, "518")
+
+    def test_codigo_erp_aparece_no_formulario_do_admin(self):
+        fieldsets = FuncionarioAdmin(Funcionario, admin.site).get_fieldsets(None)
+        campos = [
+            campo
+            for _, opcoes in fieldsets
+            for campo in opcoes["fields"]
+        ]
+
+        self.assertIn("codigo_funcionario_erp", campos)
+
+
+class UnidadeFabrilCodigoERPTest(TestCase):
+    def test_unidade_fabril_pode_ser_criada_com_codigo_empresa_erp(self):
+        unidade = UnidadeFabril.objects.create(
+            nome="Matriz",
+            codigo_empresa_erp=1,
+        )
+
+        unidade.refresh_from_db()
+
+        self.assertEqual(unidade.codigo_empresa_erp, 1)
+
+    def test_codigo_empresa_erp_nao_pode_repetir(self):
+        UnidadeFabril.objects.create(nome="Matriz", codigo_empresa_erp=1)
+
+        with self.assertRaises(IntegrityError):
+            UnidadeFabril.objects.create(nome="Filial MG", codigo_empresa_erp=1)
 
 
 # =========================================================================

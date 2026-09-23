@@ -60,6 +60,28 @@ services:
         condition: service_started
     restart: always
 
+  scheduler-erp:
+    build: .
+    container_name: controle_veiculos_scheduler_erp
+    # Mesma imagem, processo diferente: cron real (não o laço `sleep` do
+    # scheduler acima), porque a sincronização com o ERP precisa de 4
+    # horários fixos de relógio (ver docs/superpowers/plans/2026-09-23-...).
+    # `entrypoint.sh` faz o `exec` final, então o cron vira o PID 1 do
+    # container — é dele que o wrapper em docker/cron/ lê o ambiente.
+    command: ["cron", "-f", "-L", "8"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      RUN_SETUP: "false"
+      TZ: America/Sao_Paulo
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    restart: always
+
   db:
     image: postgres:16
     container_name: controle_veiculos_db

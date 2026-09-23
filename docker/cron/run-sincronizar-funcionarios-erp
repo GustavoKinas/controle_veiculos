@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# cron não repassa o ambiente do container para os jobs que dispara — só o
+# do próprio cron. Como o entrypoint termina com `exec cron -f -L 8`, o cron
+# É o PID 1 do container, e /proc/1/environ é exatamente o ambiente que
+# queremos repassar (DATABASE_URL, credenciais do ERP, vindos do env_file).
+#
+# Allowlist de propósito, não um repasse cego de tudo: evita vazar variável
+# nenhuma que não seja destas para o processo do command. O token nunca é
+# gravado em arquivo nem impresso por este script.
+#
+# `SCHEDULER_ENVIRON_PATH` existe só para testes, que não rodam como PID 1.
+
+set -eu
+
+ARQUIVO_AMBIENTE="${SCHEDULER_ENVIRON_PATH:-/proc/1/environ}"
+
+for VARIAVEL in DATABASE_URL ERP_FUNCIONARIOS_API_URL ERP_FUNCIONARIOS_API_TOKEN ERP_FUNCIONARIOS_API_TIMEOUT; do
+    VALOR=$(tr '\0' '\n' < "$ARQUIVO_AMBIENTE" | grep "^${VARIAVEL}=" | head -n1 | cut -d= -f2-)
+    if [ -n "$VALOR" ]; then
+        export "$VARIAVEL=$VALOR"
+    fi
+done
+
+cd /app
+exec "$@"

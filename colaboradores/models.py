@@ -3,9 +3,25 @@ from django.core.validators import RegexValidator
 from django.db import models
 
 
+def preparar_descricao_catalogo(descricao: str) -> str:
+    """Remove espaços excedentes sem alterar a grafia exibida."""
+    return " ".join((descricao or "").split())
+
+
+def normalizar_descricao_catalogo(descricao: str) -> str:
+    """Gera a chave de comparação de um catálogo sem distinção de caixa."""
+    return preparar_descricao_catalogo(descricao).casefold()
+
+
 class UnidadeFabril(models.Model):
     id = models.AutoField(primary_key=True)
     nome = models.CharField(max_length=125, null=False, blank=False)
+    codigo_empresa_erp = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        verbose_name="Código empresa ERP",
+    )
 
     class Meta:
         verbose_name = "Unidade Fabril"
@@ -15,6 +31,61 @@ class UnidadeFabril(models.Model):
 
     def __str__(self):
         return self.nome
+
+
+class Departamento(models.Model):
+    id = models.AutoField(primary_key=True)
+    descricao = models.CharField(max_length=125, null=False, blank=False)
+    descricao_normalizada = models.CharField(
+        max_length=125,
+        unique=True,
+        editable=False,
+    )
+
+    class Meta:
+        verbose_name = "Departamento"
+        verbose_name_plural = "Departamentos"
+        ordering = ["descricao"]
+        db_table = "departamento"
+
+    def __str__(self):
+        return self.descricao
+
+    def save(self, *args, **kwargs):
+        self.descricao = preparar_descricao_catalogo(self.descricao)
+        self.descricao_normalizada = normalizar_descricao_catalogo(self.descricao)
+        super().save(*args, **kwargs)
+
+
+class Secao(models.Model):
+    id = models.AutoField(primary_key=True)
+    departamento = models.ForeignKey(
+        Departamento,
+        on_delete=models.PROTECT,
+        related_name="secoes",
+    )
+    descricao = models.CharField(max_length=125, null=False, blank=False)
+    descricao_normalizada = models.CharField(max_length=125, editable=False)
+
+    class Meta:
+        verbose_name = "Seção"
+        verbose_name_plural = "Seções"
+        ordering = ["descricao"]
+        db_table = "secao"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["departamento", "descricao_normalizada"],
+                name="uniq_secao_por_departamento",
+            )
+        ]
+
+    def __str__(self):
+        return self.descricao
+
+    def save(self, *args, **kwargs):
+        self.descricao = preparar_descricao_catalogo(self.descricao)
+        self.descricao_normalizada = normalizar_descricao_catalogo(self.descricao)
+        super().save(*args, **kwargs)
 
 
 class CentroCusto(models.Model):
@@ -64,6 +135,18 @@ class Funcionario(AbstractUser):
     # `nome` é o nome de exibição do colaborador (distinto de username).
     nome = models.CharField(max_length=125, null=False, blank=True, default="")
 
+    # Identidade do funcionário no ERP. Fica opcional durante a carga inicial
+    # para preservar os cadastros legados até que o CSV de correspondência seja
+    # aplicado. A unicidade será definida junto com a unidade fabril quando a
+    # regra de escopo do código ERP estiver fechada.
+    codigo_funcionario_erp = models.CharField(
+        max_length=125,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Código ERP",
+    )
+
     unidade_fabril = models.ForeignKey(
         UnidadeFabril,
         on_delete=models.PROTECT,
@@ -80,9 +163,36 @@ class Funcionario(AbstractUser):
         blank=True,
     )
 
+    departamento = models.ForeignKey(
+        Departamento,
+        on_delete=models.PROTECT,
+        related_name="funcionarios",
+        null=True,
+        blank=True,
+    )
+
+    secao = models.ForeignKey(
+        Secao,
+        on_delete=models.PROTECT,
+        related_name="funcionarios",
+        null=True,
+        blank=True,
+    )
+
     # Flag de negócio: colaborador ativo para viagens. É intencionalmente
     # separado do `is_active` de autenticação do Django (que controla login).
     ativo = models.BooleanField(default=True)
+
+    # Escritos exclusivamente pela sincronização com o ERP (admissão grava
+    # só data_admissao, demissão só data_demissao — nunca as duas na mesma
+    # operação). Cadastros legados e PJs, fora do fluxo automático, ficam
+    # com os dois em branco.
+    data_admissao = models.DateField(
+        null=True, blank=True, verbose_name="Data de admissão"
+    )
+    data_demissao = models.DateField(
+        null=True, blank=True, verbose_name="Data de demissão"
+    )
 
     # Só pedimos username + senha no createsuperuser; o resto é editável depois.
     REQUIRED_FIELDS = []
@@ -102,7 +212,16 @@ class Funcionario(AbstractUser):
                 fields=["email"],
                 condition=~models.Q(email=""),
                 name="uniq_funcionario_por_email",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["unidade_fabril", "codigo_funcionario_erp"],
+                condition=(
+                    models.Q(unidade_fabril__isnull=False)
+                    & models.Q(codigo_funcionario_erp__isnull=False)
+                    & ~models.Q(codigo_funcionario_erp="")
+                ),
+                name="uniq_funcionario_codigo_erp_por_unidade",
+            ),
         ]
 
     def __str__(self):
