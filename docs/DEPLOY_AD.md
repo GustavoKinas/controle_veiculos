@@ -77,9 +77,12 @@ interna tratar dados do certificado como informação restrita.
 
 ## Proxy HTTPS e firewall
 
-O HAProxy termina HTTPS e precisa enviar `X-Forwarded-Proto: https`; nginx
-preserva esse valor para o Django. O serviço web ativa redirect HTTPS e
-cookies `Secure`, `HttpOnly` e `SameSite=Lax` no Compose de produção.
+O HAProxy termina HTTPS, envia `X-Forwarded-Proto: https` e é responsável por
+redirecionar HTTP para HTTPS. O nginx preserva esse valor para o Django, que o
+usa para reconhecer requisições seguras. No Compose de produção,
+`SECURE_SSL_REDIRECT` fica desligado para evitar um loop entre o proxy e a
+aplicação; os cookies de sessão e CSRF continuam com `Secure`, `HttpOnly` e
+`SameSite=Lax`.
 
 A porta publicada `5009` do nginx deve aceitar conexão somente da origem do
 HAProxy por regra de firewall no host/rede. Sem essa ACL, um cliente que alcance

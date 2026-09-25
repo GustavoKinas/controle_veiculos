@@ -41,7 +41,10 @@ services:
       TRUST_PROXY_SSL_HEADER: "True"
       SESSION_COOKIE_SECURE: "True"
       CSRF_COOKIE_SECURE: "True"
-      SECURE_SSL_REDIRECT: "True"
+      # O HAProxy termina TLS e é responsável pelo redirecionamento HTTP→HTTPS.
+      # O Django confia em X-Forwarded-Proto para interpretar a requisição
+      # segura, sem gerar um loop de redirects quando fala HTTP com o nginx.
+      SECURE_SSL_REDIRECT: "False"
     depends_on:
       db:
         condition: service_healthy

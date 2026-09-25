@@ -40,6 +40,11 @@ Controller real.
   a sequência antes de tratar isso como causa comprovada.
 - O Dockerfile inclui OpenSSL para conferir o certificado do DC dentro do
   container.
+- O loop de redirects HTTPS foi rastreado até `SECURE_SSL_REDIRECT=True` no
+  Compose: o HAProxy é quem termina TLS e deve fazer o redirect. O Compose foi
+  alinhado ao padrão da outra aplicação (`SECURE_SSL_REDIRECT=False`), mantendo
+  a confiança em `X-Forwarded-Proto` e cookies seguros. Falta recriar o serviço
+  `web` em produção e validar acesso e POST/CSRF.
 - A primeira execução automática de `scheduler-erp` foi observada em produção,
   mas falhou porque o ambiente do cron não encontrava `python`. A configuração
   do `PATH` no arquivo de crontab foi corrigida no código; ainda é necessário
