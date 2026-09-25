@@ -1,0 +1,12 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+  {% if change and has_change_permission %}
+    {% if original.auth_source == "DIRECTORY" %}
+      <li><a href="{% url 'admin:colaboradores_funcionario_converter_local' original.pk %}">Converter para usuário local</a></li>
+      <li><a href="{% url 'admin:colaboradores_funcionario_religar_ad' original.pk %}">Religar identidade AD</a></li>
+    {% else %}
+      <li><a href="{% url 'admin:colaboradores_funcionario_converter_directory' original.pk %}">Converter para vínculo AD</a></li>
+    {% endif %}
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

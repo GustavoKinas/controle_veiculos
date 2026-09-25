@@ -117,11 +117,17 @@ class BaseViagensTest(TestCase):
             codigo="1011105012", descricao="Projetos"
         )
 
-        cls.portaria = Funcionario.objects.create(username="portaria", nome="PORTARIA")
+        cls.portaria = Funcionario.objects.create(
+            username="portaria",
+            nome="PORTARIA",
+            auth_source=Funcionario.AuthSource.LOCAL,
+        )
         cls.portaria.groups.add(Group.objects.get(name=GRUPO_PORTARIA))
 
         cls.financeiro = Funcionario.objects.create(
-            username="financeiro", nome="FINANCEIRO"
+            username="financeiro",
+            nome="FINANCEIRO",
+            auth_source=Funcionario.AuthSource.LOCAL,
         )
         cls.financeiro.groups.add(Group.objects.get(name=GRUPO_FINANCEIRO))
         cls.funcionario = Funcionario.objects.create(
@@ -881,7 +887,7 @@ class ViagemEmAndamentoTest(BaseViagensTest):
         hoje = timezone.localdate()
         self.criar_viagem(data=hoje, km_final=None)
         self.criar_viagem(data=hoje, veiculo=self.cronos, km_inicial=105000, km_final=105100)
-        self.client.force_login(self.portaria)
+        self.client.force_login(self.financeiro)
 
         resposta = self.client.get(
             reverse("fechamento"),

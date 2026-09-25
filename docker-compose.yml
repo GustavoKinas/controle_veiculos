@@ -3,18 +3,23 @@
 #   docker compose up -d --build
 #   docker compose logs -f scheduler
 #
-# A aplicação responde em http://<servidor>:5009 — porta publicada apenas
-# pelo nginx. Os demais serviços conversam pela rede interna do compose e não
-# expõem porta nenhuma no host.
+# O nginx publica a porta de backend 5009 para o HAProxy. Em produção, restrinja
+# no firewall o acesso a essa porta exclusivamente à origem do HAProxy; não a
+# exponha diretamente aos usuários. Os demais serviços não publicam portas.
 
 services:
   web:
     build: .
     container_name: controle_veiculos_app
     command: gunicorn controle_veiculos.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120
+    dns:
+      - "${AD_DNS_PRIMARY:?preencha AD_DNS_PRIMARY}"
+    dns_search:
+      - "${AD_DNS_SEARCH:?preencha AD_DNS_SEARCH}"
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
+      - ./etc/flexivel-root-ca.crt:/run/certs/flexivel-root-ca.crt:ro
     # Sem `ports`: o gunicorn é alcançável só pela rede interna. Publicar
     # 8000 no host daria uma porta paralela que contorna o nginx — sem os
     # arquivos estáticos e sem os cabeçalhos de proxy.
@@ -33,6 +38,10 @@ services:
       # `env_file`, e as credenciais continuam vindo do .env por interpolação
       # — nada de senha escrita neste arquivo.
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      TRUST_PROXY_SSL_HEADER: "True"
+      SESSION_COOKIE_SECURE: "True"
+      CSRF_COOKIE_SECURE: "True"
+      SECURE_SSL_REDIRECT: "True"
     depends_on:
       db:
         condition: service_healthy

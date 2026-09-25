@@ -486,7 +486,8 @@ class SincronizarERPAdminTest(TestCase):
 
     def test_usuario_comum_nao_acessa(self):
         Funcionario.objects.create_user(
-            username="comum", password="senha-123", is_staff=True
+            username="comum", password="senha-123", is_staff=True,
+            auth_source=Funcionario.AuthSource.LOCAL,
         )
         self.client.login(username="comum", password="senha-123")
 

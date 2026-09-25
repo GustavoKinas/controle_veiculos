@@ -70,6 +70,13 @@ camada 2.
 
 ## 2. Criar usuários
 
+> **Contas individuais do AD:** para cada pessoa, use `/admin/` → **Novo
+> vínculo AD**, informe o `sAMAccountName` em `username` e atribua o grupo
+> local `Portaria`, `Financeiro` ou ambos. A conta DIRECTORY não recebe senha
+> local. Os comandos `criar_portaria` e `criar_financeiro` abaixo são legados
+> para as antigas contas genéricas locais; não os use para cadastrar pessoas
+> DIRECTORY. Para contingência, mantenha um superusuário LOCAL.
+
 ### 2.1 Antes de tudo: criar os grupos
 
 Os grupos precisam existir **antes** dos usuários. Rode uma vez por ambiente
@@ -87,7 +94,10 @@ Financeiro: 1 permissão(ões) aplicada(s).
 Perfis sincronizados. Use --listar para conferir o estado no banco.
 ```
 
-### 2.2 Criar um usuário do Financeiro
+### 2.2 Criar uma conta local do Financeiro (legado)
+
+Use esta opção somente para manter uma conta LOCAL genérica ou de contingência.
+Para cada pessoa autenticada pelo AD, use **Novo vínculo AD** no admin.
 
 ```powershell
 python manage.py criar_financeiro --senha "SenhaForte123"
@@ -116,7 +126,10 @@ python manage.py criar_financeiro
 O usuário entra no grupo **Financeiro**, com `is_staff=False` e
 `is_superuser=False`. Ao logar, cai direto em `/viagens/fechamento/`.
 
-### 2.3 Criar um usuário da Portaria
+### 2.3 Criar uma conta local da Portaria (legado)
+
+Use esta opção somente para manter uma conta LOCAL genérica ou de contingência.
+Para cada pessoa autenticada pelo AD, use **Novo vínculo AD** no admin.
 
 ```powershell
 python manage.py criar_portaria --senha "SenhaForte123"
@@ -148,16 +161,17 @@ python manage.py createsuperuser
 
 Ele acessa o `/admin` e todas as telas.
 
-### 2.5 Trocar a senha de alguém
+### 2.5 Trocar a senha de uma conta LOCAL
 
-Os dois comandos servem para criar **e** para redefinir senha — rodar de novo
-sobre um usuário existente troca a senha e mantém o resto:
+Os comandos servem para criar **e** redefinir senha de contas LOCAL — rodar de
+novo sobre um usuário existente troca a senha e mantém o resto. Não os use
+para contas DIRECTORY:
 
 ```powershell
 python manage.py criar_portaria --username portaria --senha "NovaSenha456"
 ```
 
-Pelo Django, para qualquer usuário:
+Pelo Django, somente para usuário LOCAL:
 
 ```powershell
 python manage.py changepassword nome.do.usuario
@@ -223,6 +237,9 @@ Financeiro (1 usuário(s)):
 ```
 
 ### 3.2 Trocar o perfil de um usuário
+
+Este helper é para contas LOCAL e recusa alterar senha ou grupo de uma conta
+DIRECTORY. Em contas AD, ajuste os grupos pelo `/admin/`.
 
 ```python
 from colaboradores.permissoes import GRUPO_FINANCEIRO, criar_usuario_de_perfil
@@ -536,6 +553,10 @@ python manage.py cadastro_centro_custo colaboradores/management/commands/cc.csv
 python manage.py cadastro_funcionarios colaboradores/management/commands/funcionarios_total_com_email.csv
 ```
 
+Os comandos de Portaria/Financeiro acima criam contas `LOCAL` legadas. Para
+usuários individuais do AD, configure o deploy conforme `DEPLOY_AD.md` e crie
+cada vínculo pelo Django Admin; não use esses comandos para a migração.
+
 Ambos aceitam `--encoding` (o padrão do `cadastro_funcionarios` é `cp1252`,
 que é o do Excel em português). Linhas inválidas são reportadas e puladas, em
 vez de derrubar a importação no meio.
@@ -623,6 +644,10 @@ python manage.py sincronizar_reservas
 O `.env` precisa de `CLIENT_ID`, `SECRETY_VALUE` (sic) e `URL_MICROSOFT` para
 a integração com o Outlook.
 
+Para instalar o serviço com usuários AD, siga também
+[`DEPLOY_AD.md`](DEPLOY_AD.md). Crie as contas individuais pelo admin e
+associe os grupos locais antes de remover manualmente as contas genéricas.
+
 Conferência da instalação:
 
 ```powershell
@@ -638,7 +663,8 @@ python manage.py configurar_perfis --listar
 | Sintoma | Causa provável | O que fazer |
 |---|---|---|
 | "Seu perfil não tem acesso a essa tela" | perfil errado para aquela URL | confira com `configurar_perfis --listar` |
-| Usuário loga e não vê menu nenhum | não está em grupo nenhum | rode `criar_portaria`/`criar_financeiro`, ou veja [§3.2](#32-trocar-o-perfil-de-um-usuário) |
+| Usuário LOCAL loga e não vê menu nenhum | não está em grupo nenhum | veja [§3.2](#32-trocar-o-perfil-de-um-usuário) |
+| Usuário DIRECTORY loga e não vê menu nenhum | não recebeu grupo local | associe `Portaria`/`Financeiro` pelo `/admin/`; não use comandos de perfil LOCAL |
 | Portaria não acessa o `/admin` | é o comportamento projetado | use o administrador |
 | `Nenhum veículo ativo com caixa de recurso cadastrada` | `email_recurso` vazio | preencha no `/admin` |
 | Sincronização com aviso amarelo | uma caixa não respondeu | permissão da aplicação no Azure; a agenda está incompleta |

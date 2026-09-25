@@ -117,9 +117,16 @@ def criar_usuario_de_perfil(*, username: str, senha: str, nome: str, grupo: str)
 
     from .models import Funcionario
 
+    if Funcionario.objects.filter(username__iexact=username).exclude(username=username).exists():
+        raise ValueError("Já existe usuário com este login em outra grafia.")
+
     funcionario, criado = Funcionario.objects.get_or_create(
-        username=username, defaults={"nome": nome}
+        username=username,
+        defaults={"nome": nome, "auth_source": Funcionario.AuthSource.LOCAL},
     )
+
+    if funcionario.auth_source != Funcionario.AuthSource.LOCAL:
+        raise ValueError("Usuário vinculado ao AD não pode receber senha local de perfil.")
 
     funcionario.set_password(senha)
     funcionario.is_active = True

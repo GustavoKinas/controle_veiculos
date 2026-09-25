@@ -27,6 +27,14 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "chave-insegura-local")
 SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "False") == "True"
 CSRF_COOKIE_SECURE = os.getenv("CSRF_COOKIE_SECURE", "False") == "True"
 SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "False") == "True"
+SESSION_COOKIE_AGE = int(os.getenv("SESSION_MAX_AGE", "28800"))
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+
+TRUST_PROXY_SSL_HEADER = os.getenv("TRUST_PROXY_SSL_HEADER", "False") == "True"
+if TRUST_PROXY_SSL_HEADER:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "False") == "True"
@@ -63,6 +71,7 @@ INSTALLED_APPS = [
 # IMPORTANTE: definido antes da primeira migração; trocar depois exige
 # recriar o banco.
 AUTH_USER_MODEL = "colaboradores.Funcionario"
+AUTHENTICATION_BACKENDS = ["colaboradores.auth_backends.HybridAuthBackend"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -95,6 +104,30 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "controle_veiculos.wsgi.application"
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "auth_audit": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "auth_audit_console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "auth_audit",
+        },
+    },
+    "loggers": {
+        "colaboradores.auth": {
+            "handlers": ["auth_audit_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
 
 
 # Database

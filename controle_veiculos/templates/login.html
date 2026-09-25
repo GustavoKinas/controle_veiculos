@@ -32,7 +32,7 @@
         senha entregaria a um atacante quais contas existem.
       {% endcomment %}
       <div class="alerta alerta-erro alerta-pagina" role="alert">
-        <span>Usuário ou senha inválidos.</span>
+        <span>{{ auth_message|default:"Usuário ou senha inválidos." }}</span>
       </div>
     {% endif %}
 

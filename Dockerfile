@@ -5,8 +5,10 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+# `openssl` permite verificar a cadeia e o hostname do AD de dentro do mesmo
+# runtime que usa a CA montada pelo Compose.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc libpq-dev netcat-traditional cron \
+    && apt-get install -y --no-install-recommends gcc libpq-dev netcat-traditional cron openssl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/

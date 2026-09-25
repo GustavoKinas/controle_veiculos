@@ -3,19 +3,16 @@ URL configuration do projeto controle_veiculos.
 """
 
 from django.contrib import admin
-from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
+from colaboradores.auth_views import HybridLoginView
 from colaboradores.views import logout_usuario, pagina_inicial
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path(
         "login/",
-        auth_views.LoginView.as_view(
-            template_name="login.html",
-            redirect_authenticated_user=True,
-        ),
+        HybridLoginView.as_view(),
         name="login",
     ),
     path("logout/", logout_usuario, name="logout"),

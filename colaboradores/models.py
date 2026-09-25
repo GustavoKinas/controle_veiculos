@@ -1,4 +1,5 @@
 from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import UserManager
 from django.core.validators import RegexValidator
 from django.db import models
 
@@ -11,6 +12,23 @@ def preparar_descricao_catalogo(descricao: str) -> str:
 def normalizar_descricao_catalogo(descricao: str) -> str:
     """Gera a chave de comparação de um catálogo sem distinção de caixa."""
     return preparar_descricao_catalogo(descricao).casefold()
+
+
+class FuncionarioManager(UserManager):
+    def create_user(self, username, email=None, password=None, **extra_fields):
+        if (
+            extra_fields.get("auth_source", Funcionario.AuthSource.DIRECTORY)
+            == Funcionario.AuthSource.DIRECTORY
+            and password is not None
+        ):
+            raise ValueError("Não é permitido definir senha local para usuários do Active Directory.")
+        return super().create_user(username, email, password, **extra_fields)
+
+    def create_superuser(self, username, email=None, password=None, **extra_fields):
+        if extra_fields.get("auth_source", Funcionario.AuthSource.LOCAL) != Funcionario.AuthSource.LOCAL:
+            raise ValueError("Superusuários devem usar autenticação local.")
+        extra_fields["auth_source"] = Funcionario.AuthSource.LOCAL
+        return super().create_superuser(username, email, password, **extra_fields)
 
 
 class UnidadeFabril(models.Model):
@@ -132,6 +150,24 @@ class Funcionario(AbstractUser):
     formulário de viagem).
     """
 
+    class AuthSource(models.TextChoices):
+        LOCAL = "LOCAL", "Local"
+        DIRECTORY = "DIRECTORY", "Active Directory"
+
+    objects = FuncionarioManager()
+
+    auth_source = models.CharField(
+        max_length=10,
+        choices=AuthSource.choices,
+        default=AuthSource.DIRECTORY,
+    )
+    directory_guid = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
+
     # `nome` é o nome de exibição do colaborador (distinto de username).
     nome = models.CharField(max_length=125, null=False, blank=True, default="")
 
@@ -228,6 +264,11 @@ class Funcionario(AbstractUser):
         return self.nome or self.username
 
     def save(self, *args, **kwargs):
+        if self.auth_source == self.AuthSource.DIRECTORY and self.has_usable_password():
+            self.set_unusable_password()
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {"password"}
         # Mantém o nome de exibição preenchido mesmo para usuários criados
         # apenas com username (ex.: portaria via createsuperuser).
         if not self.nome:

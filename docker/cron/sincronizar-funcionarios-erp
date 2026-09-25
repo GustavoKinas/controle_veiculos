@@ -9,6 +9,9 @@
 # `docker compose logs` mostrar a execução; sem isso o cron registra só no
 # syslog interno, que ninguém olha.
 CRON_TZ=America/Sao_Paulo
+# O cron não herda o PATH do container; o Python da imagem oficial fica em
+# /usr/local/bin, fora do PATH mínimo padrão do daemon.
+PATH=/usr/local/bin:/usr/bin:/bin
 
 15 7,18 * * 1-5 root /usr/local/bin/run-sincronizar-funcionarios-erp python manage.py sincronizar_funcionarios_erp --operacao admissao >> /proc/1/fd/1 2>> /proc/1/fd/2
 20 7,18 * * 1-5 root /usr/local/bin/run-sincronizar-funcionarios-erp python manage.py sincronizar_funcionarios_erp --operacao demissao >> /proc/1/fd/1 2>> /proc/1/fd/2
