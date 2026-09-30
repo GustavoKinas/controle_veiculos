@@ -1032,7 +1032,7 @@ dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
 .calendario-semana {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  grid-template-rows: minmax(92px, auto) repeat(var(--faixas), 22px);
+  grid-template-rows: minmax(92px, auto);
   gap: 1px;
   background: var(--border);
 }
@@ -1049,6 +1049,8 @@ dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
 .dia-selecionado { box-shadow: inset 0 0 0 2px var(--brand-dark); }
 
 .dia-numero {
+  position: relative;
+  z-index: 3;
   display: inline-block;
   min-width: 22px;
   margin-bottom: var(--sp-1);
@@ -1080,11 +1082,18 @@ dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
 .dia-item-lancada { background: var(--surface-2); border-left-color: var(--border-strong); color: var(--ink-3); }
 .dia-item-atrasada { background: var(--danger-bg); border-left-color: var(--danger); color: var(--danger); }
 
-/* Barras contínuas: cada segmento ocupa as colunas cobertas na semana. */
+/* Reservas ficam sobre a área interna das células e atravessam os dias cobertos. */
 .calendario-barra {
+  position: relative;
+  align-self: start;
+  height: 22px;
+  margin-top: calc(30px + var(--deslocamento-faixa));
   min-width: 0;
-  z-index: 1;
+  z-index: 2;
   overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--brand-050);
+  color: var(--ink);
 }
 .calendario-barra-dias {
   display: grid;
@@ -1092,39 +1101,47 @@ dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
   height: 100%;
 }
 .calendario-barra-dia {
-  display: flex;
-  align-items: center;
+  display: block;
   min-width: 0;
-  padding: 0 var(--sp-1);
   overflow: hidden;
-  background: var(--brand-050);
-  color: var(--ink);
-  font-size: var(--fs-xs);
-  line-height: 1;
-  white-space: nowrap;
 }
-.calendario-barra-dia span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.calendario-barra-dia:hover { background: var(--brand-100); text-decoration: none; }
+.calendario-barra-dia:hover { background: rgb(0 0 0 / 8%); text-decoration: none; }
 .calendario-barra-dia:focus-visible {
   position: relative;
   z-index: 2;
   outline: 2px solid var(--brand-dark);
   outline-offset: -2px;
 }
-.calendario-barra-inicio .calendario-barra-dia:first-child {
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+.calendario-barra-continua-antes {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
-.calendario-barra-fim .calendario-barra-dia:last-child {
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+.calendario-barra-continua-depois {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
-.calendario-barra-lancada .calendario-barra-dia {
+.calendario-barra-texto {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--sp-2);
+  overflow: hidden;
+  color: inherit;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.calendario-barra-lancada {
   background: var(--surface-2);
   color: var(--ink-3);
 }
-.calendario-barra-atrasada .calendario-barra-dia {
+.calendario-barra-atrasada {
   background: var(--danger-bg);
   color: var(--danger);
 }

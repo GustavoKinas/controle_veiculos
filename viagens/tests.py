@@ -612,6 +612,7 @@ class MontarCalendarioTest(BaseViagensTest):
         self.assertEqual((segmentos[1]["coluna_inicio"], segmentos[1]["coluna_fim"]), (1, 2))
         self.assertTrue(segmentos[0]["continua_depois"])
         self.assertTrue(segmentos[1]["continua_antes"])
+        self.assertEqual([item["mostrar_rotulo"] for item in segmentos], [True, False])
 
     def test_barra_cortada_no_inicio_da_grade_nao_mostra_ponta_falsa(self):
         reserva = ReservaViagem.objects.create(
@@ -780,11 +781,13 @@ class AgendaViewTest(BaseViagensTest):
             veiculo=self.strada,
             data=date(2026, 8, 6),
             data_fim=date(2026, 8, 8),
+            solicitante_nome="EVERTON SIMETTE",
         )
         ReservaViagem.objects.create(
             veiculo=self.strada,
             data=date(2026, 8, 7),
             data_fim=date(2026, 8, 8),
+            solicitante_nome="OUTRA PESSOA",
         )
 
         resposta = self.client.get(
@@ -802,10 +805,33 @@ class AgendaViewTest(BaseViagensTest):
         )
         self.assertContains(resposta, "calendario-barra-inicio")
         self.assertContains(resposta, "calendario-barra-fim")
-        self.assertContains(resposta, "grid-row: 2")
-        self.assertContains(resposta, "grid-row: 3")
+        self.assertContains(resposta, "grid-row: 1; --deslocamento-faixa: 0px")
+        self.assertContains(resposta, "grid-row: 1; --deslocamento-faixa: 22px")
         self.assertContains(resposta, 'href="?ano=2026&amp;mes=7&amp;dia=2026-08-06&amp;veiculo=')
         self.assertContains(resposta, 'href="?ano=2026&amp;mes=9&amp;dia=2026-08-06&amp;veiculo=')
+
+    def test_reservas_renderizam_dentro_dos_cards_dos_dias(self):
+        self.client.force_login(self.portaria)
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 6),
+            data_fim=date(2026, 8, 8),
+            solicitante_nome="EVERTON SIMETTE",
+        )
+
+        resposta = self.client.get(
+            reverse("agenda"),
+            {"dia": "2026-08-06", "ano": 2026, "mes": 8, "veiculo": self.strada.pk},
+        )
+        html = resposta.content.decode()
+
+        self.assertEqual(html.count('class="calendario-barra-texto"'), 1)
+        self.assertEqual(html.count('class="calendario-barra-dia"'), 3)
+        self.assertIn("EVERTON SIMETTE", html)
+        self.assertIn(self.strada.placa, html)
+        self.assertIn(
+            "grid-column: 4 / 7; grid-row: 1; --deslocamento-faixa: 0px", html
+        )
 
     def test_navegacao_htmx_atualiza_lista_diaria_e_seletor_com_o_panorama(self):
         self.client.force_login(self.portaria)

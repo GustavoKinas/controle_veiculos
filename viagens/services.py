@@ -339,6 +339,7 @@ def montar_calendario(ano: int, mes: int, *, veiculo_id: int | None = None) -> d
     )
 
     barras_por_semana = []
+    reservas_com_rotulo = set()
     for semana in semanas:
         inicio_semana, fim_semana = semana[0], semana[-1]
         segmentos = []
@@ -381,7 +382,13 @@ def montar_calendario(ano: int, mes: int, *, veiculo_id: int | None = None) -> d
             else:
                 faixas_fim[faixa] = segmento["coluna_fim"]
             segmento["faixa"] = faixa
-        barras_por_semana.append(sorted(segmentos, key=lambda item: item["faixa"]))
+            segmento["deslocamento_vertical"] = faixa * 22
+        barras = sorted(segmentos, key=lambda item: item["faixa"])
+        for segmento in barras:
+            reserva_id = segmento["reserva"].pk
+            segmento["mostrar_rotulo"] = reserva_id not in reservas_com_rotulo
+            reservas_com_rotulo.add(reserva_id)
+        barras_por_semana.append(barras)
 
     return {
         "semanas": [

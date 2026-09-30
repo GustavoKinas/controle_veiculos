@@ -30,7 +30,7 @@
 
     <div class="calendario-grade">
       {% for linha in semanas_com_barras %}
-        <div class="calendario-semana" style="--faixas: {{ linha.faixas }}">
+        <div class="calendario-semana">
           {% for dia, reservas_do_dia in linha.dias %}
             <div class="dia{% if dia.month != mes_exibido.month %} dia-fora{% endif %}{% if dia == hoje %} dia-hoje{% endif %}{% if dia == dia_selecionado %} dia-selecionado{% endif %}"
                  style="grid-column: {{ forloop.counter }}; grid-row: 1">
@@ -45,7 +45,7 @@
 
           {% for segmento in linha.barras %}
             <div class="calendario-barra{% if segmento.comeca %} calendario-barra-inicio{% endif %}{% if segmento.termina %} calendario-barra-fim{% endif %}{% if segmento.continua_antes %} calendario-barra-continua-antes{% endif %}{% if segmento.continua_depois %} calendario-barra-continua-depois{% endif %}{% if segmento.reserva.status == 'lancada' %} calendario-barra-lancada{% elif segmento.reserva.atrasada %} calendario-barra-atrasada{% endif %}"
-                 style="grid-column: {{ segmento.coluna_inicio }} / {{ segmento.coluna_fim }}; grid-row: {{ segmento.faixa|add:2 }}; --dias: {{ segmento.dias|length }}">
+                 style="grid-column: {{ segmento.coluna_inicio }} / {{ segmento.coluna_fim }}; grid-row: 1; --deslocamento-faixa: {{ segmento.deslocamento_vertical }}px; --dias: {{ segmento.dias|length }}">
               <div class="calendario-barra-dias">
                 {% for item in segmento.dias %}
                   <a class="calendario-barra-dia"
@@ -54,10 +54,15 @@
                      hx-target="#agenda-conteudo" hx-select="#agenda-conteudo" hx-swap="outerHTML" hx-push-url="true"
                      aria-label="{{ segmento.reserva.descricao_solicitante }} — {{ segmento.reserva.veiculo }} em {{ item.dia|date:'d/m/Y' }}"
                      title="{{ segmento.reserva.descricao_solicitante }} — {{ segmento.reserva.veiculo }} · {{ item.dia|date:'d/m/Y' }}">
-                    <span>{{ segmento.reserva.veiculo.placa }}</span>
+                    <span class="sr-only">{{ item.dia|date:'d/m/Y' }}</span>
                   </a>
                 {% endfor %}
               </div>
+              {% if segmento.mostrar_rotulo %}
+                <span class="calendario-barra-texto" title="{{ segmento.reserva.descricao_solicitante }} — {{ segmento.reserva.veiculo.placa }}">
+                  {{ segmento.reserva.descricao_solicitante }} — {{ segmento.reserva.veiculo.placa }}
+                </span>
+              {% endif %}
             </div>
           {% endfor %}
         </div>
