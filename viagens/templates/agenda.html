@@ -153,6 +153,13 @@
   <section class="painel" aria-labelledby="titulo-calendario">
     <div class="painel-cabecalho">
       <h2 id="titulo-calendario">Panorama do mês</h2>
+      <span class="panorama-veiculo">
+        {% if veiculo_selecionado %}
+          {% if veiculo_selecionado.modelo %}{{ veiculo_selecionado.modelo }} - {% endif %}{{ veiculo_selecionado.placa }}
+        {% else %}
+          Todos os veículos
+        {% endif %}
+      </span>
     </div>
     <div class="painel-corpo">
       {% include 'viagens/partials/_calendario.html' %}

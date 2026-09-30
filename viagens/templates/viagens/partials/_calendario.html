@@ -59,8 +59,9 @@
                 {% endfor %}
               </div>
               {% if segmento.mostrar_rotulo %}
-                <span class="calendario-barra-texto" title="{{ segmento.reserva.descricao_solicitante }} — {{ segmento.reserva.veiculo.placa }}">
-                  {{ segmento.reserva.descricao_solicitante }} — {{ segmento.reserva.veiculo.placa }}
+                <span class="calendario-barra-texto{% if segmento.reserva.data_fim > segmento.reserva.data %} calendario-barra-texto-longo{% else %} calendario-barra-texto-curto{% endif %}"
+                      title="{{ segmento.reserva.descricao_solicitante }}">
+                  <span>{{ segmento.reserva.descricao_solicitante }}</span>
                 </span>
               {% endif %}
             </div>

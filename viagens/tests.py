@@ -614,6 +614,22 @@ class MontarCalendarioTest(BaseViagensTest):
         self.assertTrue(segmentos[1]["continua_antes"])
         self.assertEqual([item["mostrar_rotulo"] for item in segmentos], [True, False])
 
+    def test_rotulo_multidias_fica_no_segmento_semanal_mais_largo(self):
+        reserva = ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 9),
+            data_fim=date(2026, 8, 14),
+        )
+
+        calendario = montar_calendario(2026, 8)
+        segmentos = [
+            item for semana in calendario["barras_por_semana"] for item in semana
+            if item["reserva"].pk == reserva.pk
+        ]
+
+        self.assertEqual([len(item["dias"]) for item in segmentos], [1, 5])
+        self.assertEqual([item["mostrar_rotulo"] for item in segmentos], [False, True])
+
     def test_barra_cortada_no_inicio_da_grade_nao_mostra_ponta_falsa(self):
         reserva = ReservaViagem.objects.create(
             veiculo=self.strada,
@@ -751,6 +767,13 @@ class AgendaViewTest(BaseViagensTest):
         self.assertEqual(resposta.context["veiculo_selecionado"], self.strada)
         self.assertEqual(len(resposta.context["reservas_do_dia"]), 1)
         self.assertEqual(resposta.context["total_no_mes"], 1)
+        self.assertRegex(
+            resposta.content.decode(),
+            r'<section class="painel" aria-labelledby="titulo-calendario">\s*'
+            r'<div class="painel-cabecalho">\s*'
+            r'<h2 id="titulo-calendario">Panorama do mês</h2>\s*'
+            r'<span class="panorama-veiculo">\s*STRADA - RLN1J19\s*</span>',
+        )
 
     def test_filtro_de_veiculo_invalido_volta_para_todos(self):
         self.client.force_login(self.portaria)
@@ -759,6 +782,7 @@ class AgendaViewTest(BaseViagensTest):
 
         self.assertIsNone(resposta.context["veiculo_selecionado"])
         self.assertEqual(len(resposta.context["veiculos"]), 2)
+        self.assertContains(resposta, "Todos os veículos")
 
     def test_agenda_disponivel_sem_permissao_de_gerenciar_reservas(self):
         usuario = Funcionario.objects.create(
@@ -825,12 +849,36 @@ class AgendaViewTest(BaseViagensTest):
         )
         html = resposta.content.decode()
 
-        self.assertEqual(html.count('class="calendario-barra-texto"'), 1)
+        self.assertEqual(html.count("calendario-barra-texto-longo"), 1)
         self.assertEqual(html.count('class="calendario-barra-dia"'), 3)
-        self.assertIn("EVERTON SIMETTE", html)
-        self.assertIn(self.strada.placa, html)
+        self.assertRegex(
+            html,
+            r'class="calendario-barra-texto calendario-barra-texto-longo"\s+'
+            r'title="EVERTON SIMETTE">\s*<span>EVERTON SIMETTE</span>',
+        )
         self.assertIn(
             "grid-column: 4 / 7; grid-row: 1; --deslocamento-faixa: 0px", html
+        )
+
+    def test_reserva_de_um_dia_trunca_nome_com_inicio_alinhado_a_esquerda(self):
+        self.client.force_login(self.portaria)
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 6),
+            data_fim=date(2026, 8, 6),
+            solicitante_nome="JANAINA MACEDO RIBAS DE SOUZA",
+        )
+
+        resposta = self.client.get(
+            reverse("agenda"),
+            {"dia": "2026-08-06", "ano": 2026, "mes": 8, "veiculo": self.strada.pk},
+        )
+
+        self.assertRegex(
+            resposta.content.decode(),
+            r'class="calendario-barra-texto calendario-barra-texto-curto"\s+'
+            r'title="JANAINA MACEDO RIBAS DE SOUZA">\s*'
+            r'<span>JANAINA MACEDO RIBAS DE SOUZA</span>',
         )
 
     def test_navegacao_htmx_atualiza_lista_diaria_e_seletor_com_o_panorama(self):

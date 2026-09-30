@@ -725,6 +725,12 @@ textarea:focus {
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+.panorama-veiculo {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: right;
+}
 .painel-cabecalho .descricao {
   width: 100%;
   margin-top: var(--sp-1);
@@ -1132,10 +1138,22 @@ dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
   color: inherit;
   font-size: var(--fs-xs);
   line-height: 1;
-  text-align: center;
+  pointer-events: none;
+}
+.calendario-barra-texto > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  pointer-events: none;
+}
+.calendario-barra-texto-curto {
+  justify-content: flex-start;
+  text-align: left;
+}
+.calendario-barra-texto-longo {
+  justify-content: center;
+  text-align: center;
 }
 .calendario-barra-lancada {
   background: var(--surface-2);
