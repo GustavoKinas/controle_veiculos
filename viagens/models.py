@@ -1,3 +1,5 @@
+from datetime import time, timedelta
+
 from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_delete
@@ -314,6 +316,19 @@ def periodos_se_sobrepoem(inicio_a, fim_a, inicio_b, fim_b) -> bool:
     Função de módulo, e não método, para poder ser testada com pares de
     horários soltos — sem montar reserva nem tocar no banco.
     """
+    if (
+        inicio_a is not None
+        and fim_a is not None
+        and inicio_a == fim_a
+    ) or (
+        inicio_b is not None
+        and fim_b is not None
+        and inicio_b == fim_b
+    ):
+        # Uma reserva que termina exatamente à meia-noite não ocupa o dia
+        # civil que começa nesse instante.
+        return False
+
     if inicio_a is None or fim_a is None or inicio_b is None or fim_b is None:
         # Pelo menos um dos dois é dia inteiro (ou está pela metade, e aí o
         # formulário já vai recusar por outro motivo).
@@ -378,6 +393,7 @@ class ReservaViagem(models.Model):
     )
 
     data = models.DateField()
+    data_fim = models.DateField()
     hora_inicio = models.TimeField(null=True, blank=True)
     hora_fim = models.TimeField(null=True, blank=True)
     destino = models.CharField(max_length=200, blank=True, default="")
@@ -452,7 +468,16 @@ class ReservaViagem(models.Model):
         """
         super().clean()
 
-        if self.hora_inicio is not None and self.hora_fim is not None:
+        if self.data is not None and self.data_fim is not None and self.data_fim < self.data:
+            raise ValidationError({"data_fim": "A data final não pode ser anterior à data inicial."})
+
+        if (
+            self.data is not None
+            and self.data_fim is not None
+            and self.data == self.data_fim
+            and self.hora_inicio is not None
+            and self.hora_fim is not None
+        ):
             if self.hora_fim <= self.hora_inicio:
                 raise ValidationError(
                     {"hora_fim": "O horário de fim deve ser posterior ao de início."}
@@ -483,28 +508,53 @@ class ReservaViagem(models.Model):
         if self.veiculo_id is None or self.data is None:
             return
 
+        if self.data_fim is None:
+            return
+
         candidatas = ReservaViagem.objects.filter(
             veiculo_id=self.veiculo_id,
-            data=self.data,
+            data__lte=self.data_fim,
+            data_fim__gte=self.data,
             status=self.Status.PENDENTE,
         )
         if self.pk:
             # Editar uma reserva não pode fazê-la conflitar consigo mesma.
             candidatas = candidatas.exclude(pk=self.pk)
 
-        for outra in candidatas.only("hora_inicio", "hora_fim"):
-            if periodos_se_sobrepoem(
-                self.hora_inicio, self.hora_fim, outra.hora_inicio, outra.hora_fim
-            ):
-                raise ValidationError(
-                    {
-                        "veiculo": (
-                            f"{self.veiculo.placa} já tem reserva pendente em "
-                            f"{self.data:%d/%m/%Y} {_descrever_periodo(outra)}. "
-                            "Escolha outro veículo ou outro horário."
-                        )
-                    }
-                )
+        for outra in candidatas.only(
+            "data", "data_fim", "hora_inicio", "hora_fim", "origem"
+        ):
+            primeiro_dia = max(self.data, outra.data)
+            ultimo_dia = min(self.data_fim, outra.data_fim)
+            dia_conflitante = None
+            for dia in (primeiro_dia + timedelta(days=n) for n in range((ultimo_dia - primeiro_dia).days + 1)):
+                inicio_a, fim_a = self._horarios_no_dia(dia)
+                inicio_b, fim_b = outra._horarios_no_dia(dia)
+                if periodos_se_sobrepoem(inicio_a, fim_a, inicio_b, fim_b):
+                    dia_conflitante = dia
+                    break
+            if dia_conflitante is None:
+                continue
+
+            raise ValidationError(
+                {
+                    "veiculo": (
+                        f"{self.veiculo.placa} já tem reserva pendente em "
+                        f"{dia_conflitante:%d/%m/%Y} {_descrever_periodo(outra)}. "
+                        "Escolha outro veículo ou outro horário."
+                    )
+                }
+            )
+
+    def _horarios_no_dia(self, dia):
+        """Limites de horário que esta reserva ocupa em um dia coberto."""
+        if self.hora_inicio is None or self.hora_fim is None:
+            return None, None
+        inicio = self.hora_inicio if dia == self.data else time.min
+        fim = self.hora_fim if dia == self.data_fim else time.max
+        if self.origem == self.Origem.OUTLOOK and self.hora_fim == time.min:
+            fim = time.max
+        return inicio, fim
 
     @property
     def pendente(self) -> bool:
@@ -512,8 +562,8 @@ class ReservaViagem(models.Model):
 
     @property
     def atrasada(self) -> bool:
-        """Pendente com a data já passada: precisa de atenção do operador."""
-        return self.pendente and self.data < timezone.localdate()
+        """Pendente cujo período inteiro já terminou: precisa de atenção."""
+        return self.pendente and self.data_fim < timezone.localdate()
 
     @property
     def descricao_solicitante(self) -> str:

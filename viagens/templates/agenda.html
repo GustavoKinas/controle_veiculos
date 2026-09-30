@@ -11,13 +11,28 @@
 {% endblock %}
 
 {% block content %}
-{% if perms.viagens.gerenciar_reservas %}
-  {% comment %}
-    Barra de ações da agenda. Escondida de quem não pode gerenciar reservas —
-    conveniência de tela, não controle de acesso: quem forjar o POST ainda
-    esbarra no PerfilRequeridoMixin da view.
-  {% endcomment %}
-  <div class="acoes-pagina">
+<div id="agenda-conteudo">
+<div class="acoes-pagina">
+  <form method="get" class="agenda-filtro" aria-label="Filtrar agenda por veículo">
+    <label for="filtro-veiculo">Veículo</label>
+    <select id="filtro-veiculo" class="select" name="veiculo" onchange="this.form.submit()">
+      <option value="">Todos os veículos</option>
+      {% for veiculo in veiculos %}
+        <option value="{{ veiculo.pk }}"{% if veiculo.pk == veiculo_selecionado_id %} selected{% endif %}>
+          {{ veiculo.placa }} · {{ veiculo.modelo }}
+        </option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="dia" value="{{ dia_selecionado|date:'Y-m-d' }}" />
+    <input type="hidden" name="ano" value="{{ mes_exibido.year }}" />
+    <input type="hidden" name="mes" value="{{ mes_exibido.month }}" />
+  </form>
+
+  {% if perms.viagens.gerenciar_reservas %}
+    {% comment %}
+      As ações que criam ou sincronizam reservas continuam protegidas por
+      permissão; o seletor da agenda permanece disponível aos demais usuários.
+    {% endcomment %}
     {% comment %}
       A sincronização é síncrona e leva alguns segundos (uma requisição HTTP
       por caixa de recurso). Sem retorno visual o operador acha que travou e
@@ -34,8 +49,8 @@
 
     <a href="{% url 'nova_reserva' %}?dia={{ dia_selecionado|date:'Y-m-d' }}"
        class="btn btn-primario btn-sm">Nova reserva</a>
-  </div>
-{% endif %}
+  {% endif %}
+</div>
 
 <div class="grade grade-2-3">
 
@@ -143,5 +158,6 @@
       {% include 'viagens/partials/_calendario.html' %}
     </div>
   </section>
+</div>
 </div>
 {% endblock %}

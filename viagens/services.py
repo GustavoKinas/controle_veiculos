@@ -8,7 +8,7 @@ via POST, futuros comandos/relatórios) e testáveis isoladamente.
 import calendar
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal
-from datetime import date
+from datetime import date, timedelta
 
 from django.db import transaction
 from django.db.models import Sum, Max, Min, QuerySet
@@ -145,7 +145,9 @@ def atualizar_km_veiculo(veiculo):
 # Agenda / pré-cadastro de viagens
 # ---------------------------------------------------------------------------
 
-def reservas_no_periodo(data_inicio: date, data_fim: date) -> QuerySet[ReservaViagem]:
+def reservas_no_periodo(
+    data_inicio: date, data_fim: date, *, veiculo_id: int | None = None
+) -> QuerySet[ReservaViagem]:
     """
     Reservas visíveis na agenda entre duas datas (limites inclusivos).
 
@@ -154,12 +156,15 @@ def reservas_no_periodo(data_inicio: date, data_fim: date) -> QuerySet[ReservaVi
     estado da viagem vinculada (para decidir entre "Lançar KM" e "Registrar
     chegada") em cada card.
     """
-    return (
-        ReservaViagem.objects.filter(data__range=(data_inicio, data_fim))
+    consulta = (
+        ReservaViagem.objects.filter(data__lte=data_fim, data_fim__gte=data_inicio)
         .exclude(status=ReservaViagem.Status.CANCELADA)
         .select_related("funcionario", "veiculo", "viagem")
         .order_by("hora_inicio", "id")
     )
+    if veiculo_id is not None:
+        consulta = consulta.filter(veiculo_id=veiculo_id)
+    return consulta
 
 
 @transaction.atomic
@@ -262,6 +267,7 @@ def sincronizar_reservas(
             "solicitante_email": evento["solicitante_email"],
             "veiculo": veiculo,
             "data": evento["data"],
+            "data_fim": evento["data_fim"],
             "hora_inicio": evento["hora_inicio"],
             "hora_fim": evento["hora_fim"],
         }
@@ -290,8 +296,8 @@ def sincronizar_reservas(
         ReservaViagem.objects.filter(
             origem=ReservaViagem.Origem.OUTLOOK,
             status=ReservaViagem.Status.PENDENTE,
-            data__gte=data_inicio,
             data__lte=data_fim,
+            data_fim__gte=data_inicio,
             veiculo__email_recurso__in=caixas_consultadas,
         )
         .exclude(id_externo__in=ids_vistos)
@@ -302,7 +308,7 @@ def sincronizar_reservas(
     return resumo
 
 
-def montar_calendario(ano: int, mes: int) -> dict:
+def montar_calendario(ano: int, mes: int, *, veiculo_id: int | None = None) -> dict:
     """
     Monta a grade mensal da agenda em **uma única query**.
 
@@ -317,8 +323,65 @@ def montar_calendario(ano: int, mes: int) -> dict:
     primeiro_dia, ultimo_dia = semanas[0][0], semanas[-1][-1]
 
     agrupadas: dict[date, list[ReservaViagem]] = defaultdict(list)
-    for reserva in reservas_no_periodo(primeiro_dia, ultimo_dia):
-        agrupadas[reserva.data].append(reserva)
+    reservas = reservas_no_periodo(primeiro_dia, ultimo_dia, veiculo_id=veiculo_id)
+    reservas = list(reservas)
+    for reserva in reservas:
+        inicio_visivel = max(reserva.data, primeiro_dia)
+        fim_visivel = min(reserva.data_fim, ultimo_dia)
+        for deslocamento in range((fim_visivel - inicio_visivel).days + 1):
+            agrupadas[inicio_visivel + timedelta(days=deslocamento)].append(reserva)
+
+    primeiro_dia_mes = date(ano, mes, 1)
+    ultimo_dia_mes = date(ano, mes, calendar.monthrange(ano, mes)[1])
+    total_no_mes = sum(
+        1 for reserva in reservas
+        if reserva.data <= ultimo_dia_mes and reserva.data_fim >= primeiro_dia_mes
+    )
+
+    barras_por_semana = []
+    for semana in semanas:
+        inicio_semana, fim_semana = semana[0], semana[-1]
+        segmentos = []
+        for reserva in reservas:
+            inicio_visivel = max(reserva.data, inicio_semana)
+            fim_visivel = min(reserva.data_fim, fim_semana)
+            if inicio_visivel > fim_visivel:
+                continue
+            segmentos.append({
+                "reserva": reserva,
+                "inicio": inicio_visivel,
+                "fim": fim_visivel,
+                "coluna_inicio": inicio_visivel.weekday() + 1,
+                # CSS Grid considera a coluna final exclusiva.
+                "coluna_fim": fim_visivel.weekday() + 2,
+                "comeca": reserva.data >= inicio_semana,
+                "termina": reserva.data_fim <= fim_semana,
+                "continua_antes": reserva.data < inicio_semana,
+                "continua_depois": reserva.data_fim > fim_semana,
+                "dias": [
+                    {"dia": inicio_visivel + timedelta(days=offset)}
+                    for offset in range((fim_visivel - inicio_visivel).days + 1)
+                ],
+            })
+
+        faixas_fim: list[int] = []
+        for segmento in sorted(
+            segmentos,
+            key=lambda item: (item["coluna_inicio"], -item["coluna_fim"], item["reserva"].pk),
+        ):
+            faixa = next(
+                (
+                    indice for indice, coluna_fim in enumerate(faixas_fim)
+                    if segmento["coluna_inicio"] >= coluna_fim
+                ),
+                len(faixas_fim),
+            )
+            if faixa == len(faixas_fim):
+                faixas_fim.append(segmento["coluna_fim"])
+            else:
+                faixas_fim[faixa] = segmento["coluna_fim"]
+            segmento["faixa"] = faixa
+        barras_por_semana.append(sorted(segmentos, key=lambda item: item["faixa"]))
 
     return {
         "semanas": [
@@ -326,11 +389,16 @@ def montar_calendario(ano: int, mes: int) -> dict:
         ],
         "primeiro_dia": primeiro_dia,
         "ultimo_dia": ultimo_dia,
-        "total_no_mes": sum(
-            len(reservas)
-            for dia, reservas in agrupadas.items()
-            if dia.month == mes and dia.year == ano
-        ),
+        "total_no_mes": total_no_mes,
+        "barras_por_semana": barras_por_semana,
+        "semanas_com_barras": [
+            {
+                "dias": [(dia, agrupadas.get(dia, [])) for dia in semana],
+                "barras": barras,
+                "faixas": len({barra["faixa"] for barra in barras}),
+            }
+            for semana, barras in zip(semanas, barras_por_semana)
+        ],
     }
 
 
@@ -639,7 +707,3 @@ def confirmar_fechamento(data_inicio: date, data_fim: date, usuario=None):
     Viagem.objects.filter(id__in=[viagem.id for viagem in viagens]).update(fechamento=fechamento)
 
     return fechamento
-
-
-
-
