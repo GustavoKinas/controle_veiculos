@@ -1,6 +1,6 @@
 # Contexto para retomar o trabalho
 
-Atualizado em **25/09/2026**. Este é o resumo operacional; histórico, decisões
+Atualizado em **30/09/2026**. Este é o resumo operacional; histórico, decisões
 já fechadas e procedimentos detalhados estão em [`HISTORICO.md`](HISTORICO.md)
 e nos documentos específicos listados ao final.
 
@@ -8,23 +8,45 @@ e nos documentos específicos listados ao final.
 
 ### Integração com Active Directory
 
-As quatro sprints de implementação foram concluídas. O código está pronto para
-validação operacional, mas ainda não foi autenticado contra um Domain
-Controller real.
+As quatro sprints de implementação e a validação operacional com o Active
+Directory foram concluídas.
 
 | Área | Status atual |
 | --- | --- |
 | Implementação | Cadastro LOCAL/DIRECTORY, vínculo por `objectGUID`, autenticação híbrida, permissões por grupos Django, administração e auditoria implementados. |
 | Verificação local | 258 testes executados: 27 ignorados, 1 falha esperada e nenhuma falha. `manage.py check`, verificação de migrações e build Docker passaram. |
-| Configuração AD | Variáveis LDAP/DNS permanecem vazias no `.env`, conforme combinado. Preenchê-las no ambiente de produção; a aplicação web não inicia com configuração obrigatória ausente ou inválida. |
-| Infraestrutura | Ainda faltam validar DNS, TCP/636 e certificado TLS de dentro do container, confirmar a ACL da porta publicada `5009` para o HAProxy e testar uma conta AD real. |
+| Configuração AD | O `.env` local continua vazio conforme combinado. As credenciais de bind no `.env` de produção foram corrigidas e o usuário confirmou que a integração com o AD está validada. |
+| Aplicação e HTTPS | O `web` voltou a iniciar e a página abriu depois de deixar o redirect HTTP→HTTPS a cargo do HAProxy (`SECURE_SSL_REDIRECT=False` no Compose). Os cookies continuam seguros e o Django confia em `X-Forwarded-Proto`. |
+| Infraestrutura | A integração AD foi validada em produção. Ainda falta confirmar a ACL da porta publicada `5009` para o HAProxy e testar a contingência de superusuário LOCAL com o AD indisponível. |
 | Contas genéricas | Nenhuma conta ou grupo genérico foi removido. Migrar as permissões para grupos e validar os usuários individuais antes; a remoção será feita manualmente pelo usuário. |
 
 - O checklist de configuração, validação e corte está em
   [`DEPLOY_AD.md`](DEPLOY_AD.md); o plano concluído está em
   [`superpowers/plans/2026-09-25-integracao-ad-usuarios.md`](superpowers/plans/2026-09-25-integracao-ad-usuarios.md).
-- O teste de contingência para superusuário LOCAL com AD indisponível também
+- O teste de contingência para superusuário LOCAL com AD indisponível ainda
   deve ser feito no ambiente implantado.
+
+### Agenda de viagens e reservas de veículos
+
+- A visualização mensal agora representa reservas de vários dias como uma
+  barra contínua pelo período reservado. O seletor de veículo carrega o
+  panorama do mês e as reservas do veículo escolhido.
+- Os ajustes mais recentes mostram `MODELO - PLACA` no cabeçalho do panorama e
+  o nome do funcionário alinhado à esquerda nos cards de um dia. Reservas de
+  vários dias mantêm o nome centralizado.
+- O usuário atualizou o servidor após `git pull`, executou `docker compose up
+  -d --build` e confirmou que testou em produção. A implementação está
+  aprovada pelo usuário.
+- O trabalho está na branch `codex/agenda-multidias-veiculo`, publicada no
+  GitHub, com três commits: `3dc9f08` (agenda multidias), `af737b2` (ajustes
+  visuais) e `7a446da` (nome do requisitante e veículo no cabeçalho). Ainda
+  falta integrar a branch em `main`; o usuário fará o merge pelo GitHub.
+- A branch contém os arquivos de plano e especificação da agenda como arquivos
+  não rastreados; eles não fazem parte dos três commits. A cópia local de
+  `main` também tem alterações não commitadas em `CONTEXTO_RETOMADA.md`,
+  `DEPLOY_AD.md` e `HISTORICO.md`, além desses dois arquivos não rastreados.
+  Considerar esse estado ao preparar o merge para não misturar documentação
+  local com os commits da funcionalidade.
 
 - Aplicação Django de controle de viagens, reservas de veículos e rateio por
   centro de custo. As cinco fases do pré-cadastro de viagens, perfis de acesso,
@@ -33,18 +55,23 @@ Controller real.
 - A sincronização de funcionários pelo ERP também está implementada. A
   execução manual contra a API real foi confirmada na máquina local em
   23/09/2026 e no Docker de produção em **24/09/2026**.
-- A aplicação foi subida no Docker de produção. No início, o nginx registrou
-  respostas 502 por recusa de conexão em `web:8000`; o erro desapareceu cerca
-  de quatro minutos depois. O padrão é compatível com o Gunicorn ainda não
-  estar pronto durante a inicialização, mas os logs do `web` precisam confirmar
-  a sequência antes de tratar isso como causa comprovada.
+- A implantação em produção teve dois problemas distintos já diagnosticados:
+  uma `LDAP_URI` malformada impediu o Gunicorn de iniciar e causou os 502 do
+  nginx; depois de corrigida, a aplicação iniciou. Em seguida, o redirect HTTPS
+  repetia porque o Compose forçava `SECURE_SSL_REDIRECT=True`; a configuração
+  foi alinhada ao HAProxy e o usuário confirmou que a página abriu.
 - O Dockerfile inclui OpenSSL para conferir o certificado do DC dentro do
   container.
 - O loop de redirects HTTPS foi rastreado até `SECURE_SSL_REDIRECT=True` no
   Compose: o HAProxy é quem termina TLS e deve fazer o redirect. O Compose foi
   alinhado ao padrão da outra aplicação (`SECURE_SSL_REDIRECT=False`), mantendo
-  a confiança em `X-Forwarded-Proto` e cookies seguros. Falta recriar o serviço
-  `web` em produção e validar acesso e POST/CSRF.
+  a confiança em `X-Forwarded-Proto` e cookies seguros. Após recriar o serviço,
+  o usuário confirmou que a página abriu.
+- O primeiro login DIRECTORY falhou com `DIRECTORY_UNAVAILABLE`: o bind
+  retornou LDAP `49`, `invalidCredentials`, subcódigo AD `52e`. As credenciais
+  foram corrigidas no `.env` de produção e o usuário confirmou que a integração
+  com o AD está validada. Não registrar os valores das credenciais neste
+  repositório.
 - A primeira execução automática de `scheduler-erp` foi observada em produção,
   mas falhou porque o ambiente do cron não encontrava `python`. A configuração
   do `PATH` no arquivo de crontab foi corrigida no código; ainda é necessário
@@ -52,16 +79,15 @@ Controller real.
 
 ## Próximos passos
 
-1. Preencher as variáveis AD/DNS no ambiente de produção e validar DNS,
-   TCP/636 e TLS dentro do serviço `web`, conforme `DEPLOY_AD.md`.
+1. Integrar pelo GitHub a branch `codex/agenda-multidias-veiculo` em `main`;
+   o usuário já confirmou o teste em produção e aprovou as alterações.
 2. Confirmar o IP/CIDR do HAProxy, restringir a porta 5009 no firewall e
    verificar que acesso direto é bloqueado antes de confiar no
    `X-Forwarded-Proto`.
-3. Fazer login de teste com uma conta AD individual, confirmar GUID e grupos,
-   e validar acesso de um superusuário LOCAL com o AD indisponível.
+3. Testar o superusuário LOCAL com o AD indisponível no ambiente implantado.
 4. Migrar permissões diretas para grupos e só então fazer a transição e remoção
    manual das contas genéricas, conforme o plano de corte.
-5. Após publicar a correção, confirmar uma execução bem-sucedida do cron
+5. Após o rebuild em produção, confirmar uma execução bem-sucedida do cron
    `scheduler-erp` (admissões às 07:15 e 18:15; demissões às 07:20 e 18:20,
    de segunda a sexta, horário de São Paulo). A execução manual no Docker de
    produção já foi validada.

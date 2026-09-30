@@ -160,3 +160,13 @@ ser o endereço interno do proxy; o sistema não confia em `X-Forwarded-For` par
 preencher esse campo. Senhas, hashes, senha de serviço, filtros e respostas LDAP
 completas não são registrados. Restrinja acesso e retenção dos logs conforme a
 política corporativa.
+
+## Estado da validação em produção
+
+Em **30/09/2026**, o usuário confirmou que corrigiu as credenciais no `.env`
+de produção e que a integração com o Active Directory está validada. Os
+segredos não devem ser copiados para este documento nem para o repositório.
+Permanecem como verificações de infraestrutura e contingência a ACL da porta
+`5009` para o HAProxy e o login de um superusuário `LOCAL` com o AD
+indisponível; consulte [`CONTEXTO_RETOMADA.md`](CONTEXTO_RETOMADA.md) para o
+estado atual e a lista de próximos passos.

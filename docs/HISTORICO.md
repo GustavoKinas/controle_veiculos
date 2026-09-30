@@ -489,6 +489,16 @@ de verdade, remova `PERM_REALIZAR_FECHAMENTO` da lista do `GRUPO_PORTARIA` em
 
 ---
 
+### Atualização em 30/09/2026 — integração com Active Directory validada
+
+O usuário informou que corrigiu as credenciais de bind no `.env` de produção
+e confirmou a validação da integração com o Active Directory. Não registrar
+credenciais ou outros segredos nos documentos do projeto. Permanecem pendentes
+a confirmação da ACL da porta `5009` para o HAProxy e o teste do superusuário
+`LOCAL` com o AD indisponível. O estado operacional mais recente está em
+[`CONTEXTO_RETOMADA.md`](CONTEXTO_RETOMADA.md); os procedimentos estão em
+[`DEPLOY_AD.md`](DEPLOY_AD.md).
+
 ## 7. Pendências
 
 Em ordem aproximada de valor.
@@ -499,12 +509,12 @@ Em ordem aproximada de valor.
    seção). Ainda é preciso observar o cron nos horários configurados antes de
    confiar no agendamento. Também **decidir com o usuário** a lacuna do
    desenho sobre demissão de código desconhecido (ver nota acima e no topo de
-   `colaboradores/sincronizacao_erp.py`). Antes de avançar para a integração
-   com o AD, manter o cadastro local atualizado com o ERP.
-2. **Depois da sincronização do ERP, implementar a integração com o AD.** A
-   descoberta já foi feita, mas a autenticação por AD está deliberadamente
-   bloqueada até o banco local estar o mais atualizado possível. O AD não deve
-   ser tratado como mecanismo de sincronização de funcionários.
+   `colaboradores/sincronizacao_erp.py`). Manter o cadastro local atualizado
+   com o ERP continua sendo necessário para os dados operacionais.
+2. **Integração com o AD validada em produção** em 30/09/2026, após correção
+   das credenciais no `.env`, conforme atualização acima. Ainda falta testar a
+   contingência com superusuário `LOCAL` e AD indisponível. O AD não deve ser
+   tratado como mecanismo de sincronização de funcionários.
 3. **Subir no servidor Ubuntu.** A base anterior está no GitHub, mas a frente
    ERP desta retomada ainda não foi commitada; falta executar o `DEPLOY.md`
    depois de revisar essas alterações. Ao transferir o `.env` por FTP, **quatro linhas
