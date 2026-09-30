@@ -1,90 +1,83 @@
 {% comment %}
-  Grade mensal da agenda.
-
-  Isolada num parcial para o htmx trocar via hx-select (mesmo padrão de
-  _tabela_colaboradores.html). O contexto vem de services.montar_calendario():
-  `semanas` é uma lista de semanas, cada uma com pares (dia, reservas_do_dia).
+  Panorama da agenda em dois formatos: barras por semana no desktop e lista
+  dos dias com reserva em telas estreitas.
 {% endcomment %}
 <div id="calendario">
-
   <div class="agenda-nav">
     <div class="btn-grupo">
       <a class="btn btn-secundario btn-sm"
-         href="?ano={{ mes_anterior.year }}&mes={{ mes_anterior.month }}&dia={{ dia_selecionado|date:'Y-m-d' }}"
-         hx-get="?ano={{ mes_anterior.year }}&mes={{ mes_anterior.month }}&dia={{ dia_selecionado|date:'Y-m-d' }}"
-         hx-target="#calendario" hx-select="#calendario" hx-swap="outerHTML" hx-push-url="true">
+         href="?ano={{ mes_anterior.year }}&amp;mes={{ mes_anterior.month }}&amp;dia={{ dia_selecionado|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}"
+         hx-get="?ano={{ mes_anterior.year }}&amp;mes={{ mes_anterior.month }}&amp;dia={{ dia_selecionado|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}"
+         hx-target="#agenda-conteudo" hx-select="#agenda-conteudo" hx-swap="outerHTML" hx-push-url="true">
         Anterior
       </a>
-      {# Rótulo do mês exibido: não é botão, apenas fecha o grupo visualmente. #}
-      <span class="btn btn-rotulo btn-sm capitalizar">
-        {{ mes_exibido|date:"F Y" }}
-      </span>
+      <span class="btn btn-rotulo btn-sm capitalizar">{{ mes_exibido|date:"F Y" }}</span>
       <a class="btn btn-secundario btn-sm"
-         href="?ano={{ mes_seguinte.year }}&mes={{ mes_seguinte.month }}&dia={{ dia_selecionado|date:'Y-m-d' }}"
-         hx-get="?ano={{ mes_seguinte.year }}&mes={{ mes_seguinte.month }}&dia={{ dia_selecionado|date:'Y-m-d' }}"
-         hx-target="#calendario" hx-select="#calendario" hx-swap="outerHTML" hx-push-url="true">
+         href="?ano={{ mes_seguinte.year }}&amp;mes={{ mes_seguinte.month }}&amp;dia={{ dia_selecionado|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}"
+         hx-get="?ano={{ mes_seguinte.year }}&amp;mes={{ mes_seguinte.month }}&amp;dia={{ dia_selecionado|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}"
+         hx-target="#agenda-conteudo" hx-select="#agenda-conteudo" hx-swap="outerHTML" hx-push-url="true">
         Próximo
       </a>
     </div>
     <span class="contador">{{ total_no_mes }} reserva{{ total_no_mes|pluralize:"s" }} no mês</span>
   </div>
 
-  {% comment %}
-    Grade de sete colunas: só a partir de 640px (ver .calendario no app.css).
-    Abaixo disso a mesma informação vira a lista logo adiante.
-  {% endcomment %}
   <div class="calendario">
     <div class="calendario-cabecalho" aria-hidden="true">
-      {% comment %} calendar.Calendar(firstweekday=0) começa na segunda. {% endcomment %}
-      <span>Seg</span>
-      <span>Ter</span>
-      <span>Qua</span>
-      <span>Qui</span>
-      <span>Sex</span>
-      <span>Sáb</span>
-      <span>Dom</span>
+      <span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span>
+      <span>Sex</span><span>Sáb</span><span>Dom</span>
     </div>
 
     <div class="calendario-grade">
-      {% for semana in semanas %}
-        {% for dia, reservas_do_dia in semana %}
-          <div class="dia
-                      {% if dia.month != mes_exibido.month %}dia-fora{% endif %}
-                      {% if dia == hoje %}dia-hoje{% endif %}
-                      {% if dia == dia_selecionado %}dia-selecionado{% endif %}">
-            <a class="dia-numero" href="?dia={{ dia|date:'Y-m-d' }}">
-              <span class="sr-only">Ver reservas de </span>{{ dia.day }}
-            </a>
-
-            {% for reserva in reservas_do_dia %}
-              <a href="?dia={{ dia|date:'Y-m-d' }}"
-                 title="{{ reserva.descricao_solicitante }} — {{ reserva.veiculo }}"
-                 class="dia-item
-                        {% if reserva.status == 'lancada' %}dia-item-lancada
-                        {% elif reserva.atrasada %}dia-item-atrasada{% endif %}">
-                {% if reserva.hora_inicio %}{{ reserva.hora_inicio|time:"H:i" }} {% endif %}
-                {{ reserva.veiculo.placa }}
+      {% for linha in semanas_com_barras %}
+        <div class="calendario-semana">
+          {% for dia, reservas_do_dia in linha.dias %}
+            <div class="dia{% if dia.month != mes_exibido.month %} dia-fora{% endif %}{% if dia == hoje %} dia-hoje{% endif %}{% if dia == dia_selecionado %} dia-selecionado{% endif %}"
+                 style="grid-column: {{ forloop.counter }}; grid-row: 1">
+              <a class="dia-numero"
+                 href="?dia={{ dia|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}&amp;ano={{ mes_exibido.year }}&amp;mes={{ mes_exibido.month }}"
+                 hx-get="?dia={{ dia|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}&amp;ano={{ mes_exibido.year }}&amp;mes={{ mes_exibido.month }}"
+                 hx-target="#agenda-conteudo" hx-select="#agenda-conteudo" hx-swap="outerHTML" hx-push-url="true">
+                <span class="sr-only">Ver reservas de </span>{{ dia.day }}
               </a>
-            {% endfor %}
-          </div>
-        {% endfor %}
+            </div>
+          {% endfor %}
+
+          {% for segmento in linha.barras %}
+            <div class="calendario-barra{% if segmento.comeca %} calendario-barra-inicio{% endif %}{% if segmento.termina %} calendario-barra-fim{% endif %}{% if segmento.continua_antes %} calendario-barra-continua-antes{% endif %}{% if segmento.continua_depois %} calendario-barra-continua-depois{% endif %}{% if segmento.reserva.status == 'lancada' %} calendario-barra-lancada{% elif segmento.reserva.atrasada %} calendario-barra-atrasada{% endif %}"
+                 style="grid-column: {{ segmento.coluna_inicio }} / {{ segmento.coluna_fim }}; grid-row: 1; --deslocamento-faixa: {{ segmento.deslocamento_vertical }}px; --dias: {{ segmento.dias|length }}">
+              <div class="calendario-barra-dias">
+                {% for item in segmento.dias %}
+                  <a class="calendario-barra-dia"
+                     href="?dia={{ item.dia|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}&amp;ano={{ mes_exibido.year }}&amp;mes={{ mes_exibido.month }}"
+                     hx-get="?dia={{ item.dia|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}&amp;ano={{ mes_exibido.year }}&amp;mes={{ mes_exibido.month }}"
+                     hx-target="#agenda-conteudo" hx-select="#agenda-conteudo" hx-swap="outerHTML" hx-push-url="true"
+                     aria-label="{{ segmento.reserva.descricao_solicitante }} — {{ segmento.reserva.veiculo }} em {{ item.dia|date:'d/m/Y' }}"
+                     title="{{ segmento.reserva.descricao_solicitante }} — {{ segmento.reserva.veiculo }} · {{ item.dia|date:'d/m/Y' }}">
+                    <span class="sr-only">{{ item.dia|date:'d/m/Y' }}</span>
+                  </a>
+                {% endfor %}
+              </div>
+              {% if segmento.mostrar_rotulo %}
+                <span class="calendario-barra-texto{% if segmento.reserva.data_fim > segmento.reserva.data %} calendario-barra-texto-longo{% else %} calendario-barra-texto-curto{% endif %}"
+                      title="{{ segmento.reserva.descricao_solicitante }}">
+                  <span>{{ segmento.reserva.descricao_solicitante }}</span>
+                </span>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
       {% endfor %}
     </div>
   </div>
 
-  {% comment %}
-    Celular: sete colunas ficariam ilegíveis, então a mesma informação vira
-    uma lista apenas dos dias que têm reserva.
-  {% endcomment %}
   <div class="calendario-lista">
     {% for semana in semanas %}
       {% for dia, reservas_do_dia in semana %}
         {% if reservas_do_dia and dia.month == mes_exibido.month %}
-          <a href="?dia={{ dia|date:'Y-m-d' }}">
+          <a href="?dia={{ dia|date:'Y-m-d' }}&amp;veiculo={{ veiculo_selecionado_id|default_if_none:'' }}&amp;ano={{ mes_exibido.year }}&amp;mes={{ mes_exibido.month }}">
             <span>{{ dia|date:"D, d/m" }}</span>
-            <span class="selo selo-neutro">
-              {{ reservas_do_dia|length }} reserva{{ reservas_do_dia|length|pluralize:"s" }}
-            </span>
+            <span class="selo selo-neutro">{{ reservas_do_dia|length }} reserva{{ reservas_do_dia|length|pluralize:"s" }}</span>
           </a>
         {% endif %}
       {% endfor %}
