@@ -31,8 +31,10 @@ from datetime import date, time, timedelta
 from unittest import expectedFailure, mock
 
 from django.core.exceptions import ValidationError
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
 from django.db.utils import IntegrityError
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -78,6 +80,7 @@ from .services import (
     lancar_viagem_da_reserva,
     montar_calendario,
     registrar_chegada,
+    reservas_no_periodo,
     contar_reservas_viagem_pendentes,
     sincronizar_reservas,
 )
@@ -135,6 +138,7 @@ class BaseViagensTest(TestCase):
             nome="ADRIANO AMBROSIO BODNAR",
             centro_custo=cls.cc_projetos,
             ativo=True,
+            pode_receber_reserva_manual=True,
         )
         cls.funcionario_sem_cc = Funcionario.objects.create(
             username="sem.cc", nome="SEM CENTRO DE CUSTO", ativo=True
@@ -425,6 +429,7 @@ class ReservaViagemModelTest(BaseViagensTest):
             solicitante_nome="ADRIANO A. BODNAR",
             veiculo=self.strada,
             data=timezone.localdate(),
+            data_fim=timezone.localdate(),
         )
 
         self.assertEqual(reserva.descricao_solicitante, str(self.funcionario))
@@ -435,6 +440,7 @@ class ReservaViagemModelTest(BaseViagensTest):
             solicitante_nome="Tamara Suelen Köpp",
             veiculo=self.strada,
             data=timezone.localdate(),
+            data_fim=timezone.localdate(),
         )
 
         self.assertIsNone(reserva.funcionario)
@@ -442,16 +448,28 @@ class ReservaViagemModelTest(BaseViagensTest):
 
     def test_reserva_pendente_com_data_passada_esta_atrasada(self):
         reserva = ReservaViagem.objects.create(
-            veiculo=self.strada, data=timezone.localdate() - timedelta(days=1)
+            veiculo=self.strada,
+            data=timezone.localdate() - timedelta(days=1),
+            data_fim=timezone.localdate() - timedelta(days=1),
         )
 
         self.assertTrue(reserva.atrasada)
+
+    def test_reserva_pendente_de_varios_dias_nao_atrasou_enquanto_periodo_esta_aberto(self):
+        reserva = ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=timezone.localdate() - timedelta(days=1),
+            data_fim=timezone.localdate() + timedelta(days=1),
+        )
+
+        self.assertFalse(reserva.atrasada)
 
     def test_id_externo_repetido_na_mesma_origem_e_recusado(self):
         """Idempotência do sync: o mesmo evento não entra duas vezes."""
         dados = {
             "veiculo": self.strada,
             "data": timezone.localdate(),
+            "data_fim": timezone.localdate(),
             "origem": ReservaViagem.Origem.OUTLOOK,
             "id_externo": "AAMkAG-123",
         }
@@ -464,7 +482,9 @@ class ReservaViagemModelTest(BaseViagensTest):
         """A constraint é parcial: só vale para quem tem id externo."""
         for _ in range(2):
             ReservaViagem.objects.create(
-                veiculo=self.strada, data=timezone.localdate()
+                veiculo=self.strada,
+                data=timezone.localdate(),
+                data_fim=timezone.localdate(),
             )
 
         self.assertEqual(ReservaViagem.objects.count(), 2)
@@ -473,8 +493,8 @@ class ReservaViagemModelTest(BaseViagensTest):
 class MontarCalendarioTest(BaseViagensTest):
     def test_agrupa_reservas_por_dia_em_uma_unica_query(self):
         hoje = timezone.localdate()
-        ReservaViagem.objects.create(veiculo=self.strada, data=hoje)
-        ReservaViagem.objects.create(veiculo=self.cronos, data=hoje)
+        ReservaViagem.objects.create(veiculo=self.strada, data=hoje, data_fim=hoje)
+        ReservaViagem.objects.create(veiculo=self.cronos, data=hoje, data_fim=hoje)
 
         with self.assertNumQueries(1):
             calendario = montar_calendario(hoje.year, hoje.month)
@@ -492,10 +512,171 @@ class MontarCalendarioTest(BaseViagensTest):
     def test_reserva_cancelada_nao_aparece(self):
         hoje = timezone.localdate()
         ReservaViagem.objects.create(
-            veiculo=self.strada, data=hoje, status=ReservaViagem.Status.CANCELADA
+            veiculo=self.strada, data=hoje, data_fim=hoje, status=ReservaViagem.Status.CANCELADA
         )
 
         self.assertEqual(montar_calendario(hoje.year, hoje.month)["total_no_mes"], 0)
+
+    def test_reserva_que_comeca_antes_da_grade_aparece_nos_dias_cobertos(self):
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 7, 30),
+            data_fim=date(2026, 8, 3),
+        )
+
+        calendario = montar_calendario(2026, 8)
+        dias = {dia: reservas for semana in calendario["semanas"] for dia, reservas in semana}
+
+        self.assertIn(self.strada, [reserva.veiculo for reserva in dias[date(2026, 7, 30)]])
+        self.assertIn(self.strada, [reserva.veiculo for reserva in dias[date(2026, 8, 3)]])
+        self.assertEqual(calendario["total_no_mes"], 1)
+
+    def test_reserva_que_termina_depois_da_grade_aparece_ate_o_limite_visivel(self):
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 30),
+            data_fim=date(2026, 10, 2),
+        )
+
+        calendario = montar_calendario(2026, 8)
+        dias = {dia: reservas for semana in calendario["semanas"] for dia, reservas in semana}
+
+        self.assertEqual(calendario["ultimo_dia"], date(2026, 9, 6))
+        self.assertEqual(len(dias[date(2026, 9, 6)]), 1)
+
+    def test_filtro_por_veiculo_e_aplicado_ao_panorama(self):
+        hoje = date(2026, 8, 20)
+        ReservaViagem.objects.create(veiculo=self.strada, data=hoje, data_fim=hoje)
+        ReservaViagem.objects.create(veiculo=self.cronos, data=hoje, data_fim=hoje)
+
+        calendario = montar_calendario(2026, 8, veiculo_id=self.strada.pk)
+
+        self.assertEqual(calendario["total_no_mes"], 1)
+
+    def test_reserva_longa_conta_uma_vez_no_mes(self):
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 10),
+            data_fim=date(2026, 8, 20),
+        )
+
+        self.assertEqual(montar_calendario(2026, 8)["total_no_mes"], 1)
+
+    def test_reservas_no_periodo_busca_sobreposicao_inclusiva_e_veiculo(self):
+        reserva = ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 10),
+            data_fim=date(2026, 8, 20),
+        )
+
+        self.assertEqual(
+            list(reservas_no_periodo(date(2026, 8, 20), date(2026, 8, 25), veiculo_id=self.strada.pk)),
+            [reserva],
+        )
+        self.assertEqual(reservas_no_periodo(date(2026, 8, 21), date(2026, 8, 25)).count(), 0)
+
+    def test_barra_de_tres_dias_alinha_colunas_e_pontas(self):
+        reserva = ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 3),
+            data_fim=date(2026, 8, 5),
+        )
+
+        calendario = montar_calendario(2026, 8)
+        segmento = next(
+            item for semana in calendario["barras_por_semana"] for item in semana
+            if item["reserva"].pk == reserva.pk
+        )
+
+        self.assertEqual((segmento["coluna_inicio"], segmento["coluna_fim"]), (1, 4))
+        self.assertTrue(segmento["comeca"])
+        self.assertTrue(segmento["termina"])
+        self.assertEqual([item["dia"] for item in segmento["dias"]], [
+            date(2026, 8, 3), date(2026, 8, 4), date(2026, 8, 5)
+        ])
+
+    def test_barra_que_cruza_semana_ganha_segmento_em_cada_linha(self):
+        reserva = ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 7),
+            data_fim=date(2026, 8, 10),
+        )
+
+        calendario = montar_calendario(2026, 8)
+        segmentos = [
+            item for semana in calendario["barras_por_semana"] for item in semana
+            if item["reserva"].pk == reserva.pk
+        ]
+
+        self.assertEqual(len(segmentos), 2)
+        self.assertEqual((segmentos[0]["coluna_inicio"], segmentos[0]["coluna_fim"]), (5, 8))
+        self.assertEqual((segmentos[1]["coluna_inicio"], segmentos[1]["coluna_fim"]), (1, 2))
+        self.assertTrue(segmentos[0]["continua_depois"])
+        self.assertTrue(segmentos[1]["continua_antes"])
+        self.assertEqual([item["mostrar_rotulo"] for item in segmentos], [True, False])
+
+    def test_rotulo_multidias_fica_no_segmento_semanal_mais_largo(self):
+        reserva = ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 9),
+            data_fim=date(2026, 8, 14),
+        )
+
+        calendario = montar_calendario(2026, 8)
+        segmentos = [
+            item for semana in calendario["barras_por_semana"] for item in semana
+            if item["reserva"].pk == reserva.pk
+        ]
+
+        self.assertEqual([len(item["dias"]) for item in segmentos], [1, 5])
+        self.assertEqual([item["mostrar_rotulo"] for item in segmentos], [False, True])
+
+    def test_barra_cortada_no_inicio_da_grade_nao_mostra_ponta_falsa(self):
+        reserva = ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 7, 20),
+            data_fim=date(2026, 8, 2),
+        )
+
+        calendario = montar_calendario(2026, 8)
+        segmento = next(
+            item for item in calendario["barras_por_semana"][0]
+            if item["reserva"].pk == reserva.pk
+        )
+
+        self.assertEqual(segmento["coluna_inicio"], 1)
+        self.assertFalse(segmento["comeca"])
+        self.assertTrue(segmento["termina"])
+
+    def test_barras_sobrepostas_usam_faixas_diferentes(self):
+        primeira = ReservaViagem.objects.create(
+            veiculo=self.strada, data=date(2026, 8, 4), data_fim=date(2026, 8, 6)
+        )
+        segunda = ReservaViagem.objects.create(
+            veiculo=self.cronos, data=date(2026, 8, 5), data_fim=date(2026, 8, 7)
+        )
+
+        calendario = montar_calendario(2026, 8)
+        segmentos = [
+            item for item in calendario["barras_por_semana"][1]
+            if item["reserva"].pk in {primeira.pk, segunda.pk}
+        ]
+
+        self.assertEqual(len({item["faixa"] for item in segmentos}), 2)
+
+    def test_altura_da_semana_usa_somente_as_faixas_ocupadas(self):
+        for deslocamento in range(7):
+            dia = date(2026, 10, 5) + timedelta(days=deslocamento)
+            ReservaViagem.objects.create(
+                veiculo=self.strada if deslocamento % 2 == 0 else self.cronos,
+                data=dia,
+                data_fim=dia,
+            )
+
+        semana = montar_calendario(2026, 10)["semanas_com_barras"][1]
+
+        self.assertEqual(len(semana["barras"]), 7)
+        self.assertEqual(semana["faixas"], 1)
 
 
 @override_settings(STORAGES=STORAGES_DE_TESTE)
@@ -510,7 +691,7 @@ class AgendaViewTest(BaseViagensTest):
         self.client.force_login(self.portaria)
         hoje = timezone.localdate()
         ReservaViagem.objects.create(
-            veiculo=self.strada, data=hoje, solicitante_nome="FULANO DE TAL"
+            veiculo=self.strada, data=hoje, data_fim=hoje, solicitante_nome="FULANO DE TAL"
         )
 
         resposta = self.client.get(reverse("agenda"))
@@ -538,7 +719,7 @@ class AgendaViewTest(BaseViagensTest):
         """
         self.client.force_login(self.portaria)
         amanha = timezone.localdate() + timedelta(days=1)
-        reserva = ReservaViagem.objects.create(veiculo=self.strada, data=amanha)
+        reserva = ReservaViagem.objects.create(veiculo=self.strada, data=amanha, data_fim=amanha)
 
         resposta = self.client.get(reverse("agenda"), {"dia": amanha.isoformat()})
 
@@ -548,7 +729,7 @@ class AgendaViewTest(BaseViagensTest):
     def test_reserva_de_hoje_oferece_o_botao_de_lancar(self):
         self.client.force_login(self.portaria)
         hoje = timezone.localdate()
-        reserva = ReservaViagem.objects.create(veiculo=self.strada, data=hoje)
+        reserva = ReservaViagem.objects.create(veiculo=self.strada, data=hoje, data_fim=hoje)
 
         resposta = self.client.get(reverse("agenda"), {"dia": hoje.isoformat()})
 
@@ -557,12 +738,161 @@ class AgendaViewTest(BaseViagensTest):
     def test_dia_selecionado_filtra_a_fila(self):
         self.client.force_login(self.portaria)
         amanha = timezone.localdate() + timedelta(days=1)
-        ReservaViagem.objects.create(veiculo=self.strada, data=amanha)
+        ReservaViagem.objects.create(veiculo=self.strada, data=amanha, data_fim=amanha)
 
         resposta = self.client.get(reverse("agenda"), {"dia": amanha.isoformat()})
 
         self.assertEqual(resposta.context["dia_selecionado"], amanha)
         self.assertEqual(len(resposta.context["reservas_do_dia"]), 1)
+
+    def test_reserva_aparece_na_fila_de_um_dia_intermediario(self):
+        self.client.force_login(self.portaria)
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 6),
+            data_fim=date(2026, 8, 8),
+        )
+
+        resposta = self.client.get(reverse("agenda"), {"dia": "2026-08-07"})
+
+        self.assertEqual(len(resposta.context["reservas_do_dia"]), 1)
+
+    def test_veiculo_selecionado_filtra_a_fila_e_o_panorama(self):
+        self.client.force_login(self.portaria)
+        hoje = timezone.localdate()
+        ReservaViagem.objects.create(veiculo=self.strada, data=hoje, data_fim=hoje)
+        ReservaViagem.objects.create(veiculo=self.cronos, data=hoje, data_fim=hoje)
+
+        resposta = self.client.get(reverse("agenda"), {"dia": hoje.isoformat(), "veiculo": self.strada.pk})
+
+        self.assertEqual(resposta.context["veiculo_selecionado"], self.strada)
+        self.assertEqual(len(resposta.context["reservas_do_dia"]), 1)
+        self.assertEqual(resposta.context["total_no_mes"], 1)
+        self.assertRegex(
+            resposta.content.decode(),
+            r'<section class="painel" aria-labelledby="titulo-calendario">\s*'
+            r'<div class="painel-cabecalho">\s*'
+            r'<h2 id="titulo-calendario">Panorama do mês</h2>\s*'
+            r'<span class="panorama-veiculo">\s*STRADA - RLN1J19\s*</span>',
+        )
+
+    def test_filtro_de_veiculo_invalido_volta_para_todos(self):
+        self.client.force_login(self.portaria)
+
+        resposta = self.client.get(reverse("agenda"), {"veiculo": "nao-e-id"})
+
+        self.assertIsNone(resposta.context["veiculo_selecionado"])
+        self.assertEqual(len(resposta.context["veiculos"]), 2)
+        self.assertContains(resposta, "Todos os veículos")
+
+    def test_agenda_disponivel_sem_permissao_de_gerenciar_reservas(self):
+        usuario = Funcionario.objects.create(
+            username="somente_agenda", nome="SOMENTE AGENDA", auth_source=Funcionario.AuthSource.LOCAL
+        )
+        usuario.user_permissions.add(Permission.objects.get(codename="lancar_viagem"))
+        self.client.force_login(usuario)
+
+        resposta = self.client.get(reverse("agenda"))
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(list(resposta.context["veiculos"]), [self.cronos, self.strada])
+        self.assertContains(resposta, 'name="veiculo"')
+        self.assertNotContains(resposta, "Sincronizar reservas")
+        self.assertNotContains(resposta, "Nova reserva")
+
+    def test_links_dos_segmentos_preservam_veiculo_e_mes(self):
+        self.client.force_login(self.portaria)
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 6),
+            data_fim=date(2026, 8, 8),
+            solicitante_nome="EVERTON SIMETTE",
+        )
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 7),
+            data_fim=date(2026, 8, 8),
+            solicitante_nome="OUTRA PESSOA",
+        )
+
+        resposta = self.client.get(
+            reverse("agenda"),
+            {"dia": "2026-08-06", "ano": 2026, "mes": 8, "veiculo": self.strada.pk},
+        )
+
+        self.assertContains(
+            resposta,
+            f'href="?dia=2026-08-07&amp;veiculo={self.strada.pk}&amp;ano=2026&amp;mes=8"',
+        )
+        self.assertRegex(
+            resposta.content.decode(),
+            rf'class="calendario-barra-dia"\s+href="\?dia=2026-08-07&amp;veiculo={self.strada.pk}&amp;ano=2026&amp;mes=8"',
+        )
+        self.assertContains(resposta, "calendario-barra-inicio")
+        self.assertContains(resposta, "calendario-barra-fim")
+        self.assertContains(resposta, "grid-row: 1; --deslocamento-faixa: 0px")
+        self.assertContains(resposta, "grid-row: 1; --deslocamento-faixa: 22px")
+        self.assertContains(resposta, 'href="?ano=2026&amp;mes=7&amp;dia=2026-08-06&amp;veiculo=')
+        self.assertContains(resposta, 'href="?ano=2026&amp;mes=9&amp;dia=2026-08-06&amp;veiculo=')
+
+    def test_reservas_renderizam_dentro_dos_cards_dos_dias(self):
+        self.client.force_login(self.portaria)
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 6),
+            data_fim=date(2026, 8, 8),
+            solicitante_nome="EVERTON SIMETTE",
+        )
+
+        resposta = self.client.get(
+            reverse("agenda"),
+            {"dia": "2026-08-06", "ano": 2026, "mes": 8, "veiculo": self.strada.pk},
+        )
+        html = resposta.content.decode()
+
+        self.assertEqual(html.count("calendario-barra-texto-longo"), 1)
+        self.assertEqual(html.count('class="calendario-barra-dia"'), 3)
+        self.assertRegex(
+            html,
+            r'class="calendario-barra-texto calendario-barra-texto-longo"\s+'
+            r'title="EVERTON SIMETTE">\s*<span>EVERTON SIMETTE</span>',
+        )
+        self.assertIn(
+            "grid-column: 4 / 7; grid-row: 1; --deslocamento-faixa: 0px", html
+        )
+
+    def test_reserva_de_um_dia_trunca_nome_com_inicio_alinhado_a_esquerda(self):
+        self.client.force_login(self.portaria)
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 6),
+            data_fim=date(2026, 8, 6),
+            solicitante_nome="JANAINA MACEDO RIBAS DE SOUZA",
+        )
+
+        resposta = self.client.get(
+            reverse("agenda"),
+            {"dia": "2026-08-06", "ano": 2026, "mes": 8, "veiculo": self.strada.pk},
+        )
+
+        self.assertRegex(
+            resposta.content.decode(),
+            r'class="calendario-barra-texto calendario-barra-texto-curto"\s+'
+            r'title="JANAINA MACEDO RIBAS DE SOUZA">\s*'
+            r'<span>JANAINA MACEDO RIBAS DE SOUZA</span>',
+        )
+
+    def test_navegacao_htmx_atualiza_lista_diaria_e_seletor_com_o_panorama(self):
+        self.client.force_login(self.portaria)
+
+        resposta = self.client.get(
+            reverse("agenda"),
+            {"dia": "2026-08-06", "ano": 2026, "mes": 8},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertContains(resposta, 'id="agenda-conteudo"')
+        self.assertContains(resposta, 'name="dia" value="2026-08-06"')
 
 
 # =========================================================================
@@ -605,6 +935,7 @@ class NormalizarEventoTest(TestCase):
         self.assertEqual(dados["email_recurso"], "autenticidade@grupoflexivel.com.br")
         self.assertEqual(dados["solicitante_email"], "jacson.maia@grupoflexivel.com.br")
         self.assertEqual(dados["data"], date(2026, 8, 13))
+        self.assertEqual(dados["data_fim"], date(2026, 8, 13))
         self.assertEqual(dados["hora_inicio"], time(11, 0))
         self.assertEqual(dados["hora_fim"], time(12, 0))
         self.assertFalse(dados["cancelado"])
@@ -630,8 +961,56 @@ class NormalizarEventoTest(TestCase):
         )
 
         self.assertEqual(dados["data"], date(2026, 8, 13))
+        self.assertEqual(dados["data_fim"], date(2026, 8, 13))
         self.assertIsNone(dados["hora_inicio"])
         self.assertIsNone(dados["hora_fim"])
+
+    def test_evento_de_varios_dias_inteiro_termina_no_dia_anterior_ao_fim_graph(self):
+        dados = normalizar_evento(
+            self.evento(
+                isAllDay=True,
+                start={"dateTime": "2026-10-06T00:00:00.0000000"},
+                end={"dateTime": "2026-10-09T00:00:00.0000000"},
+            ),
+            "sala@x.com",
+        )
+
+        self.assertEqual(dados["data"], date(2026, 10, 6))
+        self.assertEqual(dados["data_fim"], date(2026, 10, 8))
+
+    def test_evento_com_horario_termina_em_outro_dia(self):
+        dados = normalizar_evento(
+            self.evento(
+                start={"dateTime": "2026-10-06T22:00:00.0000000"},
+                end={"dateTime": "2026-10-08T02:00:00.0000000"},
+            ),
+            "sala@x.com",
+        )
+
+        self.assertEqual(dados["data_fim"], date(2026, 10, 8))
+
+    def test_evento_com_horario_terminando_a_meia_noite_nao_ocupa_dia_seguinte(self):
+        dados = normalizar_evento(
+            self.evento(
+                start={"dateTime": "2026-10-06T22:00:00.0000000"},
+                end={"dateTime": "2026-10-08T00:00:00.0000000"},
+            ),
+            "sala@x.com",
+        )
+
+        self.assertEqual(dados["data_fim"], date(2026, 10, 7))
+
+    def test_evento_com_fim_no_primeiro_minuto_do_dia_ocupa_o_dia_final(self):
+        dados = normalizar_evento(
+            self.evento(
+                start={"dateTime": "2026-10-06T22:00:00.0000000"},
+                end={"dateTime": "2026-10-08T00:00:30.0000000"},
+            ),
+            "sala@x.com",
+        )
+
+        self.assertEqual(dados["data_fim"], date(2026, 10, 8))
+        self.assertEqual(dados["hora_fim"], time(0, 1))
 
     def test_evento_sem_id_ou_sem_data_e_descartado(self):
         """Um evento inaproveitável não pode derrubar o lote inteiro."""
@@ -659,6 +1038,7 @@ class SincronizarReservasTest(BaseViagensTest):
             "solicitante_email": "adriano@empresa.com",
             "solicitante_nome": "ADRIANO AMBROSIO BODNAR",
             "data": timezone.localdate(),
+            "data_fim": timezone.localdate(),
             "hora_inicio": time(8, 0),
             "hora_fim": time(9, 0),
             "cancelado": False,
@@ -684,6 +1064,7 @@ class SincronizarReservasTest(BaseViagensTest):
         reserva = ReservaViagem.objects.get()
         self.assertEqual(reserva.funcionario, self.funcionario)
         self.assertEqual(reserva.veiculo, self.strada)
+        self.assertEqual(reserva.data_fim, timezone.localdate())
         self.assertEqual(reserva.status, ReservaViagem.Status.PENDENTE)
 
     def test_rodar_duas_vezes_nao_duplica(self):
@@ -706,6 +1087,32 @@ class SincronizarReservasTest(BaseViagensTest):
 
         reserva = ReservaViagem.objects.get()
         self.assertEqual(reserva.hora_inicio, time(14, 0))
+
+    def test_atualizacao_persiste_nova_data_final(self):
+        self.sincronizar([self.evento()])
+
+        self.sincronizar([self.evento(data_fim=timezone.localdate() + timedelta(days=2))])
+
+        self.assertEqual(
+            ReservaViagem.objects.get().data_fim, timezone.localdate() + timedelta(days=2)
+        )
+
+    def test_persiste_data_final_normalizada_no_fim_a_meia_noite(self):
+        evento = normalizar_evento(
+            {
+                "id": "evt-meia-noite",
+                "subject": "ADRIANO AMBROSIO BODNAR",
+                "organizer": {"emailAddress": {"name": "ADRIANO AMBROSIO BODNAR"}},
+                "start": {"dateTime": "2026-10-06T22:00:00.0000000"},
+                "end": {"dateTime": "2026-10-08T00:00:00.0000000"},
+                "isAllDay": False,
+            },
+            "sala.a@empresa.com",
+        )
+
+        self.sincronizar([evento])
+
+        self.assertEqual(ReservaViagem.objects.get().data_fim, date(2026, 10, 7))
 
     def test_solicitante_sem_cadastro_fica_sem_colaborador(self):
         self.sincronizar(
@@ -747,6 +1154,21 @@ class SincronizarReservasTest(BaseViagensTest):
         self.assertEqual(
             ReservaViagem.objects.get().status, ReservaViagem.Status.CANCELADA
         )
+
+    def test_evento_ausente_com_inicio_antes_da_janela_e_cancelado_se_a_cruza(self):
+        hoje = timezone.localdate()
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=hoje - timedelta(days=1),
+            data_fim=hoje + timedelta(days=1),
+            origem=ReservaViagem.Origem.OUTLOOK,
+            id_externo="evt-antigo",
+            status=ReservaViagem.Status.PENDENTE,
+        )
+
+        resumo = self.sincronizar([], dias=0)
+
+        self.assertEqual(resumo["canceladas"], 1)
 
     def test_caixa_que_falhou_nao_tem_reservas_canceladas(self):
         """
@@ -922,6 +1344,7 @@ class LancarReservaServiceTest(BaseViagensTest):
             funcionario=self.funcionario,
             veiculo=self.strada,
             data=timezone.localdate(),
+            data_fim=timezone.localdate(),
         )
 
     def test_fluxo_b_lanca_viagem_completa_e_marca_a_reserva(self):
@@ -979,7 +1402,10 @@ class LancarReservaServiceTest(BaseViagensTest):
     def test_veiculo_ja_na_rua_bloqueia_nova_saida(self):
         lancar_viagem_da_reserva(reserva_pk=self.reserva.pk, km_inicial=100000)
         outra = ReservaViagem.objects.create(
-            funcionario=self.funcionario, veiculo=self.strada, data=timezone.localdate()
+            funcionario=self.funcionario,
+            veiculo=self.strada,
+            data=timezone.localdate(),
+            data_fim=timezone.localdate(),
         )
 
         with self.assertRaises(ValidationError):
@@ -990,6 +1416,7 @@ class LancarReservaServiceTest(BaseViagensTest):
             solicitante_nome="Tamara Suelen Köpp",
             veiculo=self.cronos,
             data=timezone.localdate(),
+            data_fim=timezone.localdate(),
         )
 
         with self.assertRaises(ValidationError):
@@ -1030,6 +1457,7 @@ class LancarReservaViewTest(BaseViagensTest):
             funcionario=self.funcionario,
             veiculo=self.strada,
             data=timezone.localdate(),
+            data_fim=timezone.localdate(),
         )
 
     def test_get_mostra_os_dados_da_reserva_sem_campos_editaveis(self):
@@ -1079,6 +1507,7 @@ class LancarReservaViewTest(BaseViagensTest):
             funcionario=self.funcionario,
             veiculo=self.cronos,
             data=timezone.localdate() + timedelta(days=1),
+            data_fim=timezone.localdate() + timedelta(days=1),
         )
 
         resposta = self.client.post(
@@ -1394,12 +1823,81 @@ class ReservaManualTest(BaseViagensTest):
             "funcionario": self.funcionario.pk,
             "veiculo": self.strada.pk,
             "data": "2026-08-20",
+            "data_fim": "2026-08-20",
             "hora_inicio": "08:00",
             "hora_fim": "12:00",
             "destino": "Visita a cliente",
         }
         dados.update(kwargs)
         return dados
+
+    def test_data_fim_comeca_igual_a_data(self):
+        resposta = self.client.get(reverse("nova_reserva"), {"dia": "2026-08-20"})
+
+        self.assertEqual(resposta.context["form"]["data_fim"].value(), date(2026, 8, 20))
+
+    def test_cria_reserva_com_periodo_de_varios_dias(self):
+        resposta = self.client.post(
+            reverse("nova_reserva"), self.dados_reserva(data_fim="2026-08-22")
+        )
+
+        self.assertEqual(resposta.status_code, 302)
+        self.assertEqual(ReservaViagem.objects.get().data_fim, date(2026, 8, 22))
+
+    def test_data_fim_anterior_a_data_e_recusada(self):
+        form = ReservaManualForm(self.dados_reserva(data_fim="2026-08-19"))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("data_fim", form.errors)
+
+    def test_hora_fim_menor_e_aceita_quando_reserva_termina_em_outro_dia(self):
+        form = ReservaManualForm(
+            self.dados_reserva(data_fim="2026-08-21", hora_inicio="14:00", hora_fim="09:00")
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_hora_fim_menor_continua_recusada_no_mesmo_dia(self):
+        form = ReservaManualForm(
+            self.dados_reserva(hora_inicio="14:00", hora_fim="09:00")
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("hora_fim", form.errors)
+
+    def test_conflito_no_dia_intermediario_e_recusado(self):
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 21),
+            data_fim=date(2026, 8, 21),
+            hora_inicio=time(10),
+            hora_fim=time(11),
+            status=ReservaViagem.Status.PENDENTE,
+        )
+        form = ReservaManualForm(
+            self.dados_reserva(data_fim="2026-08-22", hora_inicio="10:30", hora_fim="11:30")
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("veiculo", form.errors)
+
+    def test_horarios_adjacentes_sao_aceitos(self):
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=date(2026, 8, 21),
+            data_fim=date(2026, 8, 21),
+            hora_inicio=time(8),
+            hora_fim=time(12),
+            status=ReservaViagem.Status.PENDENTE,
+        )
+        form = ReservaManualForm(
+            self.dados_reserva(
+                data="2026-08-21", data_fim="2026-08-22", hora_inicio="12:00", hora_fim="08:00"
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
 
     def test_cria_reserva_e_volta_para_o_dia_dela(self):
         resposta = self.client.post(reverse("nova_reserva"), self.dados_reserva())
@@ -1479,6 +1977,42 @@ class ReservaManualTest(BaseViagensTest):
 
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(ReservaViagem.objects.count(), 0)
+
+
+class ReservaDataFimMigrationTest(TransactionTestCase):
+    """A migração preserva as reservas existentes como eventos de um dia."""
+
+    migrate_from = [("viagens", "0009_permissoes_de_perfil")]
+    migrate_to = [("viagens", "0010_reserva_viagem_data_fim")]
+
+    def setUp(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_from)
+        self.old_apps = executor.loader.project_state(self.migrate_from).apps
+
+        VeiculoAntigo = self.old_apps.get_model("viagens", "Veiculo")
+        ReservaAntiga = self.old_apps.get_model("viagens", "ReservaViagem")
+        veiculo = VeiculoAntigo.objects.create(
+            placa="MIG1A23", modelo="LEGADO", marca="TESTE", km_atual=0
+        )
+        self.data_reserva = date(2026, 8, 20)
+        ReservaAntiga.objects.create(veiculo=veiculo, data=self.data_reserva)
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(self.migrate_to)
+        self.new_apps = executor.loader.project_state(self.migrate_to).apps
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        super().tearDown()
+
+    def test_preenche_data_fim_com_a_data_legada(self):
+        ReservaNova = self.new_apps.get_model("viagens", "ReservaViagem")
+
+        reserva = ReservaNova.objects.get(data=self.data_reserva)
+
+        self.assertEqual(reserva.data_fim, self.data_reserva)
 
 
 @override_settings(STORAGES=STORAGES_DE_TESTE)
@@ -1832,6 +2366,10 @@ class PeriodosSeSobrepoemTest(TestCase):
     def test_dois_dias_inteiros_conflitam(self):
         self.assertTrue(self.sobrepoe(None, None, None, None))
 
+    def test_periodo_vazio_na_meia_noite_nao_conflita_com_dia_inteiro(self):
+        self.assertFalse(self.sobrepoe("00:00", "00:00", None, None))
+        self.assertFalse(self.sobrepoe(None, None, "00:00", "00:00"))
+
 
 @override_settings(STORAGES=STORAGES_DE_TESTE)
 class VeiculoJaReservadoTest(BaseViagensTest):
@@ -1845,6 +2383,7 @@ class VeiculoJaReservadoTest(BaseViagensTest):
             funcionario=self.funcionario,
             veiculo=self.strada,
             data=date(2026, 8, 20),
+            data_fim=date(2026, 8, 20),
             hora_inicio=time(8, 0),
             hora_fim=time(12, 0),
         )
@@ -1855,11 +2394,14 @@ class VeiculoJaReservadoTest(BaseViagensTest):
             "funcionario": self.funcionario.pk,
             "veiculo": self.strada.pk,
             "data": self.DATA,
+            "data_fim": self.DATA,
             "hora_inicio": "09:00",
             "hora_fim": "11:00",
             "destino": "Visita",
         }
         base.update(kwargs)
+        if "data" in kwargs and "data_fim" not in kwargs:
+            base["data_fim"] = kwargs["data"]
         return base
 
     def test_horario_sobreposto_e_recusado(self):
@@ -1895,6 +2437,76 @@ class VeiculoJaReservadoTest(BaseViagensTest):
 
     def test_outro_dia_no_mesmo_horario_e_aceito(self):
         form = ReservaManualForm(self.dados(data="2026-08-21"))
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_reserva_que_termina_a_meia_noite_nao_ocupa_o_dia_seguinte(self):
+        ReservaViagem.objects.create(
+            funcionario=self.funcionario,
+            veiculo=self.strada,
+            data=date(2026, 10, 6),
+            data_fim=date(2026, 10, 8),
+            hora_inicio=time(22, 0),
+            hora_fim=time(0, 0),
+        )
+
+        form = ReservaManualForm(
+            self.dados(
+                data="2026-10-08",
+                data_fim="2026-10-08",
+                hora_inicio="",
+                hora_fim="",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_reserva_que_termina_a_meia_noite_e_aceita_se_dia_inteiro_ja_existe(self):
+        ReservaViagem.objects.create(
+            funcionario=self.funcionario,
+            veiculo=self.strada,
+            data=date(2026, 10, 8),
+            data_fim=date(2026, 10, 8),
+        )
+
+        form = ReservaManualForm(
+            self.dados(
+                data="2026-10-06",
+                data_fim="2026-10-08",
+                hora_inicio="22:00",
+                hora_fim="00:00",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_fim_graph_no_primeiro_minuto_nao_bloqueia_horarios_posteriores(self):
+        dados = normalizar_evento(
+            {
+                "id": "evt-fim-no-primeiro-minuto",
+                "start": {"dateTime": "2026-10-06T22:00:00.0000000"},
+                "end": {"dateTime": "2026-10-08T00:00:30.0000000"},
+                "isAllDay": False,
+            },
+            "sala.a@empresa.com",
+        )
+        ReservaViagem.objects.create(
+            veiculo=self.strada,
+            data=dados["data"],
+            data_fim=dados["data_fim"],
+            hora_inicio=dados["hora_inicio"],
+            hora_fim=dados["hora_fim"],
+            origem=ReservaViagem.Origem.OUTLOOK,
+        )
+
+        form = ReservaManualForm(
+            self.dados(
+                data="2026-10-08",
+                data_fim="2026-10-08",
+                hora_inicio="12:00",
+                hora_fim="13:00",
+            )
+        )
 
         self.assertTrue(form.is_valid(), form.errors)
 
@@ -1938,6 +2550,7 @@ class VeiculoJaReservadoTest(BaseViagensTest):
             funcionario=self.funcionario_sem_cc,
             veiculo=self.strada,
             data=date(2026, 8, 20),
+            data_fim=date(2026, 8, 20),
             hora_inicio=time(9, 0),
             hora_fim=time(11, 0),
         )
@@ -1969,6 +2582,7 @@ class VeiculoJaReservadoTest(BaseViagensTest):
                     "solicitante_nome": "Fulano",
                     "solicitante_email": "fulano@grupoflexivel.com.br",
                     "data": date(2026, 8, 20),
+                    "data_fim": date(2026, 8, 20),
                     "hora_inicio": time(9, 0),
                     "hora_fim": time(11, 0),
                     "cancelado": False,
@@ -1997,6 +2611,7 @@ class ContarReservasPendentesTest(BaseViagensTest):
             funcionario=self.funcionario,
             veiculo=kwargs.pop("veiculo", self.strada),
             data=dia,
+            data_fim=kwargs.pop("data_fim", dia),
             status=status,
             **kwargs,
         )
@@ -2056,7 +2671,8 @@ class RateioExpoeAsPendenciasTest(BaseViagensTest):
             veiculo=self.cronos, data=date(2026, 8, 4), km_inicial=105000, km_final=None
         )
         ReservaViagem.objects.create(
-            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+            funcionario=self.funcionario, veiculo=self.strada,
+            data=date(2026, 8, 10), data_fim=date(2026, 8, 10)
         )
 
         rateio = calcular_rateio(date(2026, 8, 1), date(2026, 8, 31))
@@ -2071,7 +2687,8 @@ class RateioExpoeAsPendenciasTest(BaseViagensTest):
         """
         self.criar_viagem(data=date(2026, 8, 3), km_inicial=100000, km_final=100100)
         ReservaViagem.objects.create(
-            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+            funcionario=self.funcionario, veiculo=self.strada,
+            data=date(2026, 8, 10), data_fim=date(2026, 8, 10)
         )
 
         rateio = calcular_rateio(date(2026, 8, 1), date(2026, 8, 31))
@@ -2095,7 +2712,8 @@ class AvisoDePendenciasNaTelaTest(BaseViagensTest):
     def test_avisa_sobre_reserva_pendente(self):
         self.criar_viagem(data=date(2026, 8, 3))
         ReservaViagem.objects.create(
-            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+            funcionario=self.funcionario, veiculo=self.strada,
+            data=date(2026, 8, 10), data_fim=date(2026, 8, 10)
         )
 
         self.assertContains(self.abrir_previa(), "reserva(s)")
@@ -2115,7 +2733,8 @@ class AvisoDePendenciasNaTelaTest(BaseViagensTest):
         operador mais precisa saber que falta lançar.
         """
         ReservaViagem.objects.create(
-            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+            funcionario=self.funcionario, veiculo=self.strada,
+            data=date(2026, 8, 10), data_fim=date(2026, 8, 10)
         )
 
         resposta = self.abrir_previa()
@@ -2139,7 +2758,8 @@ class AvisoDePendenciasNaTelaTest(BaseViagensTest):
         """
         self.criar_viagem(data=date(2026, 8, 3))
         ReservaViagem.objects.create(
-            funcionario=self.funcionario, veiculo=self.strada, data=date(2026, 8, 10)
+            funcionario=self.funcionario, veiculo=self.strada,
+            data=date(2026, 8, 10), data_fim=date(2026, 8, 10)
         )
 
         resposta = self.client.post(reverse("fechamento"), self.PERIODO)

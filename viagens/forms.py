@@ -82,11 +82,15 @@ class ReservaManualForm(forms.ModelForm):
 
     class Meta:
         model = ReservaViagem
-        fields = ["funcionario", "veiculo", "data", "hora_inicio", "hora_fim", "destino"]
+        fields = ["funcionario", "veiculo", "data", "data_fim", "hora_inicio", "hora_fim", "destino"]
         widgets = {
             "funcionario": forms.Select(attrs={"class": "select"}),
             "veiculo": forms.Select(attrs={"class": "select"}),
             "data": forms.DateInput(
+                attrs={"class": "input", "type": "date"},
+                format="%Y-%m-%d",
+            ),
+            "data_fim": forms.DateInput(
                 attrs={"class": "input", "type": "date"},
                 format="%Y-%m-%d",
             ),
@@ -109,6 +113,7 @@ class ReservaManualForm(forms.ModelForm):
             "funcionario": "Colaborador",
             "veiculo": "Veículo",
             "data": "Data da reserva",
+            "data_fim": "Data final da reserva",
             "hora_inicio": "Horário de início",
             "hora_fim": "Horário de fim",
             "destino": "Destino",
@@ -121,6 +126,7 @@ class ReservaManualForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["data"].input_formats = ["%Y-%m-%d"]
+        self.fields["data_fim"].input_formats = ["%Y-%m-%d"]
         self.fields["hora_inicio"].input_formats = ["%H:%M"]
         self.fields["hora_fim"].input_formats = ["%H:%M"]
 
