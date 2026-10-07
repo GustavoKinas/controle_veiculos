@@ -11,7 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from datetime import date
 
 from django.db import transaction
-from django.db.models import Sum, Max, Min, QuerySet
+from django.db.models import Q, Sum, Max, Min, QuerySet
 from django.db.models.functions import Coalesce
 from django.core.exceptions import ValidationError
 
@@ -347,6 +347,37 @@ def viagem_em_andamento_do_veiculo(veiculo, ignorar_viagem_id=None) -> Viagem | 
     return consulta.select_related("funcionario").first()
 
 
+def _reserva_pendente_anterior(reserva):
+    """Retorna a reserva pendente imediatamente anterior na fila do veículo."""
+    anteriores_no_dia = Q(
+        data=reserva.data,
+        hora_inicio__isnull=True,
+        pk__lt=reserva.pk,
+    )
+
+    if reserva.hora_inicio is not None:
+        anteriores_no_dia |= Q(
+            data=reserva.data,
+            hora_inicio__lt=reserva.hora_inicio,
+        )
+        anteriores_no_dia |= Q(
+            data=reserva.data,
+            hora_inicio=reserva.hora_inicio,
+            pk__lt=reserva.pk,
+        )
+
+    return (
+        ReservaViagem.objects.filter(
+            veiculo_id=reserva.veiculo_id,
+            status=ReservaViagem.Status.PENDENTE,
+        )
+        .exclude(pk=reserva.pk)
+        .filter(Q(data__lt=reserva.data) | anteriores_no_dia)
+        .order_by("data", "hora_inicio", "pk")
+        .first()
+    )
+
+
 @transaction.atomic
 def lancar_viagem_da_reserva(
     *,
@@ -391,6 +422,23 @@ def lancar_viagem_da_reserva(
     if reserva is None:
         raise ReservaIndisponivel(
             "Esta reserva já foi lançada ou cancelada por outra pessoa."
+        )
+
+    anterior = _reserva_pendente_anterior(reserva)
+    if anterior is not None:
+        horario = (
+            f"às {anterior.hora_inicio:%H:%M}"
+            if anterior.hora_inicio is not None
+            else "em uma reserva de dia inteiro"
+        )
+        raise ValidationError(
+            {
+                "km_inicial": (
+                    f"Lance primeiro a quilometragem da reserva de "
+                    f"{reserva.veiculo.placa} em "
+                    f"{anterior.data:%d/%m/%Y}, {horario}."
+                )
+            }
         )
 
     # O colaborador vem SEMPRE da reserva quando ela o tem. O parâmetro só

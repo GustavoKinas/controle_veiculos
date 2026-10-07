@@ -91,6 +91,7 @@ class FuncionarioAdmin(UserAdmin):
                     "departamento",
                     "secao",
                     "ativo",
+                    "pode_receber_reserva_manual",
                 )
             },
         ),
@@ -109,6 +110,7 @@ class FuncionarioAdmin(UserAdmin):
                     "departamento",
                     "secao",
                     "ativo",
+                    "pode_receber_reserva_manual",
                 )
             },
         ),

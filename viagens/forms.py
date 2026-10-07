@@ -127,7 +127,11 @@ class ReservaManualForm(forms.ModelForm):
         # Mesma regra do lançamento: só viaja quem está ativo e tem centro de
         # custo, porque é o centro de custo que recebe o rateio depois.
         self.fields["funcionario"].queryset = (
-            Funcionario.objects.filter(ativo=True, centro_custo__isnull=False)
+            Funcionario.objects.filter(
+                ativo=True,
+                centro_custo__isnull=False,
+                pode_receber_reserva_manual=True,
+            )
             .select_related("centro_custo")
             .order_by("nome")
         )
@@ -205,6 +209,8 @@ class LancamentoDeReservaForm(forms.Form):
     def __init__(self, *args, reserva=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.reserva = reserva
+        if reserva is not None:
+            self.initial.setdefault("km_inicial", reserva.veiculo.km_atual)
 
         # Reserva com colaborador identificado: o campo não deve nem existir,
         # para que não haja o que adulterar. Reserva sem: vira obrigatório.

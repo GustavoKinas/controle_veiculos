@@ -452,6 +452,16 @@ class ReservaViagem(models.Model):
         """
         super().clean()
 
+        if self.origem == self.Origem.MANUAL:
+            if self.funcionario_id is None:
+                raise ValidationError(
+                    {"funcionario": "Selecione um funcionário para a reserva manual."}
+                )
+            if not self.funcionario.pode_receber_reserva_manual:
+                raise ValidationError(
+                    {"funcionario": "Este funcionário não pode receber reserva manual."}
+                )
+
         if self.hora_inicio is not None and self.hora_fim is not None:
             if self.hora_fim <= self.hora_inicio:
                 raise ValidationError(

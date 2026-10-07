@@ -24,8 +24,8 @@ class ViagemAdmin(admin.ModelAdmin):
         "veiculo"
     )
     # `km_final__isnull` filtra as viagens em andamento (veículos na rua).
-    list_filter = ("fechamento", "centro_custo", "data", "km_final")
-    search_fields = ("funcionario__nome", "funcionario__username")
+    list_filter = ("fechamento", "centro_custo", "data", "km_final", "veiculo")
+    search_fields = ("funcionario__nome", "funcionario__username", "veiculo__placa")
     date_hierarchy = "data"
     readonly_fields = ("km_percorrida", "centro_custo", "criada_em", "lancada_por")
 
@@ -58,7 +58,7 @@ class ReservaViagemAdmin(admin.ModelAdmin):
         "viagem",
     )
     list_filter = ("status", "origem", "veiculo")
-    search_fields = ("solicitante_nome", "funcionario__nome", "destino", "id_externo")
+    search_fields = ("solicitante_nome", "funcionario__nome", "destino", "id_externo", "veiculo__placa")
     date_hierarchy = "data"
     autocomplete_fields = ("veiculo",)
     # Preenchidos pelo fluxo de lançamento (fase 3), nunca à mão.

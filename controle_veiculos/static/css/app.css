@@ -697,6 +697,11 @@ textarea:focus {
   box-shadow: var(--shadow-sm);
 }
 
+.painel-ultimas-viagens {
+  width: 905px;
+  max-width: 100%;
+}
+
 .painel-cabecalho {
   display: flex;
   flex-wrap: wrap;

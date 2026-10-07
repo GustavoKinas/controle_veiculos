@@ -8,7 +8,7 @@ from .models import Funcionario
 CREATION_FIELDS = (
     "username", "nome", "first_name", "last_name", "email", "groups",
     "is_active", "is_staff", "is_superuser", "unidade_fabril", "centro_custo",
-    "departamento", "secao", "ativo",
+    "departamento", "secao", "ativo", "pode_receber_reserva_manual",
 )
 
 

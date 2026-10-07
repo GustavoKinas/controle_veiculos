@@ -142,7 +142,7 @@ class Funcionario(AbstractUser):
     first_name, last_name, is_staff, is_superuser, is_active, groups,
     user_permissions, last_login e date_joined.
 
-    Etapa 1: apenas o usuário-operador `portaria` faz login (ele lança as
+    Apenas o usuário-operador `portaria` faz login (ele lança as
     viagens de todos). Os demais funcionários existem como cadastro/base
     para as viagens e ainda não fazem login — por isso `unidade_fabril` e
     `centro_custo` são opcionais no banco (o operador não pertence a um
@@ -171,10 +171,6 @@ class Funcionario(AbstractUser):
     # `nome` é o nome de exibição do colaborador (distinto de username).
     nome = models.CharField(max_length=125, null=False, blank=True, default="")
 
-    # Identidade do funcionário no ERP. Fica opcional durante a carga inicial
-    # para preservar os cadastros legados até que o CSV de correspondência seja
-    # aplicado. A unicidade será definida junto com a unidade fabril quando a
-    # regra de escopo do código ERP estiver fechada.
     codigo_funcionario_erp = models.CharField(
         max_length=125,
         null=True,
@@ -218,10 +214,14 @@ class Funcionario(AbstractUser):
     # Flag de negócio: colaborador ativo para viagens. É intencionalmente
     # separado do `is_active` de autenticação do Django (que controla login).
     ativo = models.BooleanField(default=True)
+    pode_receber_reserva_manual = models.BooleanField(
+        default=False,
+        verbose_name="Pode receber reserva manual",
+    )
 
     # Escritos exclusivamente pela sincronização com o ERP (admissão grava
     # só data_admissao, demissão só data_demissao — nunca as duas na mesma
-    # operação). Cadastros legados e PJs, fora do fluxo automático, ficam
+    # operação). PJs, fora do fluxo automático, ficam
     # com os dois em branco.
     data_admissao = models.DateField(
         null=True, blank=True, verbose_name="Data de admissão"
