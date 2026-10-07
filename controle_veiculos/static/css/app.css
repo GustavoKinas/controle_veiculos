@@ -1534,6 +1534,49 @@ body.acesso {
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* Página de erro: experiência isolada da navegação autenticada. */
+body.erro-500 {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--sp-6) var(--sp-4);
+  background-color: var(--brand-teal);
+  background-image:
+    linear-gradient(rgba(4, 67, 34, 0.72), rgba(4, 67, 34, 0.82)),
+    url("../images/background.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.erro-500-conteudo {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-6);
+  width: min(100%, 34rem);
+  padding: var(--sp-8) var(--sp-6);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.erro-500-logo {
+  width: auto;
+  height: 44px;
+}
+
+.erro-500-conteudo h1 {
+  color: var(--brand-dark);
+  font-size: clamp(var(--fs-xl), 5vw, var(--fs-3xl));
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+@media (max-width: 480px) {
+  .erro-500-conteudo { padding: var(--sp-6) var(--sp-4); }
+}
+
 /* ==========================================================================
    19. AUXILIARES
 

@@ -149,11 +149,11 @@ def pagina_inicial_de(usuario) -> str:
     Nome da rota para onde este usuário deve cair ao entrar.
 
     Sem isto, o financeiro faria login e bateria de cara num 403: a
-    `LOGIN_REDIRECT_URL` é uma constante só, e a tela de lançamento — o
-    destino natural da portaria — é justamente a que ele não pode ver.
+    `LOGIN_REDIRECT_URL` é uma constante só, e a tela de consulta é o destino
+    natural da portaria, enquanto o financeiro deve ir ao fechamento.
     """
     if usuario.has_perm(PERM_LANCAR_VIAGEM):
-        return "lancar_viagem"
+        return "consultar_viagens"
     if usuario.has_perm(PERM_REALIZAR_FECHAMENTO):
         return "fechamento"
     # Sem nenhum dos dois: a agenda é somente leitura e serve de aterrissagem

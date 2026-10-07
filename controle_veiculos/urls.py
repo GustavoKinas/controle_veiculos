@@ -22,3 +22,6 @@ urlpatterns = [
     path("viagens/", include("viagens.urls")),
     path("colaboradores/", include("colaboradores.urls")),
 ]
+
+# Em produção (DEBUG=False), renderiza o template 500.html do projeto.
+handler500 = "django.views.defaults.server_error"
