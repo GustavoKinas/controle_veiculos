@@ -85,7 +85,7 @@
 
     {% if ultimas_viagens %}
       {% comment %}
-        Seis colunas não cabem em tela estreita. A tabela rola dentro do
+        Cinco colunas não cabem em tela estreita. A tabela rola dentro do
         próprio contêiner — convertê-la em cartões destruiria a comparação
         entre linhas, que é para o que ela existe.
       {% endcomment %}
@@ -96,7 +96,6 @@
               <th scope="col">Data</th>
               <th scope="col">Colaborador</th>
               <th scope="col">Veículo</th>
-              <th scope="col">C. Custo</th>
               <th scope="col" class="num">KM</th>
               <th scope="col">Situação</th>
             </tr>
@@ -113,7 +112,6 @@
                   {{ viagem.veiculo.placa }}
                   <span class="texto-apoio">· {{ viagem.veiculo.modelo }}</span>
                 </td>
-                <td class="nowrap mono">{{ viagem.centro_custo.codigo }}</td>
                 <td class="num">
                   {% if viagem.em_andamento %}—{% else %}{{ viagem.km_percorrida }}{% endif %}
                 </td>
