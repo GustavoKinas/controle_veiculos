@@ -58,7 +58,7 @@ from .exports import (
     montar_csv_rateio,
     montar_csv_viagens,
 )
-from .forms import LancamentoViagemForm, ReservaManualForm
+from .forms import ReservaManualForm
 from .integracoes.microsoft_graph import normalizar_evento
 from .models import (
     Fechamento,
@@ -173,18 +173,6 @@ class BaseViagensTest(TestCase):
         viagem = self.nova_viagem(**kwargs)
         viagem.save()
         return viagem
-
-    def dados_form(self, **kwargs) -> dict:
-        """POST pronto para `LancamentoViagemForm` / a view de lançamento."""
-        dados = {
-            "funcionario": self.funcionario.pk,
-            "veiculo": self.strada.pk,
-            "data": "2026-08-03",
-            "km_inicial": 100000,
-            "km_final": 100005,
-        }
-        dados.update(kwargs)
-        return dados
 
 
 class FuncionarioCodigoERPTest(TestCase):
@@ -308,31 +296,7 @@ class HodometroVeiculoTest(BaseViagensTest):
 
 
 # =========================================================================
-# 3. Formulário de lançamento
-# =========================================================================
-class LancamentoViagemFormTest(BaseViagensTest):
-    def test_form_valido_congela_o_centro_de_custo_do_funcionario(self):
-        # TODO: salve pelo form e confira viagem.centro_custo == cc do funcionário.
-        #       Depois mude o cc do funcionário e confirme que a viagem NÃO muda.
-        self.skipTest("TODO")
-
-    def test_erro_de_regra_aparece_no_campo_e_nao_como_erro_geral(self):
-        """A validação vem de Model.clean() via _post_clean — confirme o endereçamento."""
-        # TODO: form inválido -> assertIn("km_inicial", form.errors)
-        self.skipTest("TODO")
-
-    def test_select_lista_apenas_colaboradores_ativos_e_com_centro_de_custo(self):
-        # TODO: funcionario_inativo e funcionario_sem_cc não podem estar no queryset.
-        self.skipTest("TODO")
-
-    def test_veiculo_e_obrigatorio(self):
-        """O campo é null=True no modelo, mas required=True no form. Por quê?"""
-        # TODO
-        self.skipTest("TODO")
-
-
-# =========================================================================
-# 4. Rateio — services.calcular_rateio
+# 3. Rateio — services.calcular_rateio
 # =========================================================================
 class CalcularRateioTest(BaseViagensTest):
     def test_soma_km_e_percentual_por_centro_de_custo(self):
@@ -355,7 +319,7 @@ class CalcularRateioTest(BaseViagensTest):
 
 
 # =========================================================================
-# 5. Fechamento — services.confirmar_fechamento
+# 4. Fechamento — services.confirmar_fechamento
 # =========================================================================
 class ConfirmarFechamentoTest(BaseViagensTest):
     def test_cria_snapshot_e_marca_as_viagens(self):
@@ -383,21 +347,19 @@ class ConfirmarFechamentoTest(BaseViagensTest):
 
 
 # =========================================================================
-# 6. Views (test Client)
+# 5. Views (test Client)
 # =========================================================================
 @override_settings(STORAGES=STORAGES_DE_TESTE)
 class ViagensViewsTest(BaseViagensTest):
-    def test_post_lanca_viagem_e_registra_lancada_por(self):
-        """EXEMPLO IMPLEMENTADO — modelo para os testes de view."""
+    def test_consulta_nao_cria_viagem_por_post(self):
         self.client.force_login(self.portaria)
 
-        resposta = self.client.post(reverse("lancar_viagem"), self.dados_form())
+        resposta = self.client.post(
+            reverse("consultar_viagens"), {}
+        )
 
-        self.assertRedirects(resposta, reverse("lancar_viagem"))
-        viagem = Viagem.objects.get()
-        self.assertEqual(viagem.lancada_por, self.portaria)
-        self.assertEqual(viagem.centro_custo, self.cc_projetos)
-        self.assertEqual(viagem.km_percorrida, 5)
+        self.assertEqual(resposta.status_code, 405)
+        self.assertEqual(Viagem.objects.count(), 0)
 
     def test_rotas_exigem_login(self):
         # TODO: sem login, cada rota do app deve redirecionar (302) para /login/.
@@ -420,7 +382,7 @@ class ViagensViewsTest(BaseViagensTest):
 
 
 # =========================================================================
-# 7. Agenda / pré-cadastro (fases 1 e 2)
+# 6. Agenda / pré-cadastro (fases 1 e 2)
 # =========================================================================
 class ReservaViagemModelTest(BaseViagensTest):
     def test_descricao_usa_o_cadastro_quando_identificado(self):
@@ -896,7 +858,7 @@ class AgendaViewTest(BaseViagensTest):
 
 
 # =========================================================================
-# 7.1 Sincronização com o Outlook (fase 4)
+# 6.1 Sincronização com o Outlook (fase 4)
 #
 # Nenhum teste aqui toca a rede: a borda (`integracoes.microsoft_graph`) já
 # traduziu o evento para o formato normalizado, e é esse dicionário que o
@@ -1247,7 +1209,7 @@ class FuncionarioEmailTest(TestCase):
 
 
 # =========================================================================
-# 8. Fase 3 — lançamento a partir da reserva (fluxos A e B)
+# 7. Fase 3 — lançamento a partir da reserva (fluxos A e B)
 # =========================================================================
 class ViagemEmAndamentoTest(BaseViagensTest):
     """`km_final` nulo = veículo na rua. O que isso muda no resto do sistema."""
@@ -1568,7 +1530,7 @@ class LancarReservaViewTest(BaseViagensTest):
 
 
 # =========================================================================
-# 9. Lacunas conhecidas (caça aos bugs)
+# 8. Lacunas conhecidas (caça aos bugs)
 #
 # `@expectedFailure` = "este teste descreve o comportamento CORRETO, que o
 # código ainda não tem". A suíte segue verde, mas a dívida fica documentada
@@ -1587,39 +1549,35 @@ class LacunasConhecidasTest(BaseViagensTest):
         self.assertIn("data", ctx.exception.message_dict)
 
     def test_data_vazia_nao_estoura_a_regra_de_data_futura(self):
-        """
-        `clean()` roda com o objeto pela metade quando um campo falha na fase 1.
-        Sem a guarda `is not None`, comparar `None > date` derruba o form com
-        TypeError (erro 500) em vez de acusar "campo obrigatório".
-        """
-        form = LancamentoViagemForm(self.dados_form(data=""))
+        """Campo ausente gera ValidationError, sem comparação com None."""
+        viagem = self.nova_viagem(data=None)
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("data", form.errors)
+        with self.assertRaises(ValidationError) as ctx:
+            viagem.full_clean()
 
-    def test_form_sem_veiculo_acusa_campo_obrigatorio_e_nao_estoura(self):
-        """
-        Com FK obrigatória, `self.veiculo` levanta RelatedObjectDoesNotExist em
-        vez de devolver None — por isso `clean()` consulta `veiculo_id` antes.
-        """
-        form = LancamentoViagemForm(self.dados_form(veiculo=""))
+        self.assertIn("data", ctx.exception.message_dict)
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("veiculo", form.errors)
+    def test_viagem_sem_veiculo_acusa_campo_obrigatorio_sem_estourar(self):
+        viagem = self.nova_viagem(veiculo=None)
+
+        with self.assertRaises(ValidationError) as ctx:
+            viagem.full_clean()
+
+        self.assertIn("veiculo", ctx.exception.message_dict)
 
     def test_erros_de_data_e_de_km_aparecem_juntos(self):
-        """Acumulação: o operador corrige tudo de uma vez, não um por envio."""
-        form = LancamentoViagemForm(
-            self.dados_form(
-                data=(timezone.localdate() + timedelta(days=1)).isoformat(),
-                km_inicial=500,
-                km_final=100,
-            )
+        """A validação do modelo acumula data futura e quilometragem inválida."""
+        viagem = self.nova_viagem(
+            data=timezone.localdate() + timedelta(days=1),
+            km_inicial=500,
+            km_final=100,
         )
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("data", form.errors)
-        self.assertIn("km_final", form.errors)
+        with self.assertRaises(ValidationError) as ctx:
+            viagem.full_clean()
+
+        self.assertIn("data", ctx.exception.message_dict)
+        self.assertIn("km_final", ctx.exception.message_dict)
 
     def test_banco_recusa_km_final_menor_que_inicial(self):
         """Camada 3: a CheckConstraint barra o que o ORM puro deixaria passar."""
@@ -1638,7 +1596,7 @@ class LacunasConhecidasTest(BaseViagensTest):
 
 
 # =========================================================================
-# 10. Perfis de acesso, reserva manual e sync pela tela
+# 9. Perfis de acesso, reserva manual e sync pela tela
 #
 # O controle de acesso é testado pela porta da frente (`self.client`), nunca
 # só pelo `has_perm`: o que interessa não é o usuário ter a permissão, é a URL
@@ -1652,7 +1610,7 @@ class PerfilFinanceiroTest(BaseViagensTest):
     ROTAS_PERMITIDAS = ["fechamento", "historico_fechamentos"]
     ROTAS_NEGADAS = [
         "agenda",
-        "lancar_viagem",
+        "consultar_viagens",
         "nova_reserva",
         "funcionarios",
         "funcionarios_cadastrados",
@@ -1706,7 +1664,7 @@ class PerfilPortariaTest(BaseViagensTest):
         self.client.force_login(self.portaria)
 
     def test_acessa_as_telas_de_operacao(self):
-        for nome in ["agenda", "lancar_viagem", "nova_reserva"]:
+        for nome in ["agenda", "consultar_viagens", "nova_reserva"]:
             with self.subTest(rota=nome):
                 self.assertEqual(self.client.get(reverse(nome)).status_code, 200)
 
@@ -2090,7 +2048,7 @@ class SincronizarPelaTelaTest(BaseViagensTest):
         )
 
 # =========================================================================
-# 11. Exportação em CSV — rateio e viagens, arquivos separados
+# 10. Exportação em CSV — rateio e viagens, arquivos separados
 #
 # O rateio é importado no ERP, então o teste central é o de forma: uma
 # tabela e nada mais. Título de seção, linha em branco ou linha de total
@@ -2319,7 +2277,7 @@ class ExportacaoPelaUrlTest(BaseViagensTest):
 
 
 # =========================================================================
-# 12. Veículo já reservado (BUG corrigido em 08/2026)
+# 11. Veículo já reservado (BUG corrigido em 08/2026)
 #
 # A tela de reserva manual aceitava reservar um veículo que já tinha reserva
 # pendente no mesmo horário — duas pessoas saíam com o mesmo carro. A regra
@@ -2597,7 +2555,7 @@ class VeiculoJaReservadoTest(BaseViagensTest):
 
 
 # =========================================================================
-# 13. Pendências do período no fechamento
+# 12. Pendências do período no fechamento
 #
 # O fechamento é irreversível, então o que fica para trás precisa aparecer
 # ANTES de confirmar. Duas pendências, nenhuma delas afetando o rateio:

@@ -712,8 +712,31 @@ textarea:focus {
 }
 
 .painel-ultimas-viagens {
-  width: 905px;
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
+}
+
+.tabela-consulta-viagens {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.tabela-consulta-viagens th,
+.tabela-consulta-viagens td {
+  overflow-wrap: anywhere;
+}
+
+.tabela-consulta-viagens thead th {
+  white-space: normal;
+}
+
+.tabela-consulta-viagens .truncar {
   max-width: 100%;
+}
+
+.tabela-consulta-viagens .selo {
+  white-space: normal;
 }
 
 .painel-cabecalho {

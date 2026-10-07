@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block title %}Consultar viagens lançadas — Controle de Veículos{% endblock %}
+{% block page_title %}Consultar viagens lançadas{% endblock %}
+{% block page_subtitle %}
+  <p>As 15 viagens registradas mais recentemente.</p>
+{% endblock %}
+
+{% block content %}
+  <section class="painel painel-ultimas-viagens" aria-labelledby="titulo-ultimas">
+    <div class="painel-cabecalho">
+      <h2 id="titulo-ultimas">Últimas viagens</h2>
+      <span class="contador">15 mais recentes</span>
+    </div>
+
+    {% if ultimas_viagens %}
+      <table class="tabela tabela-compacta tabela-consulta-viagens">
+        <colgroup>
+          <col style="width: 12%">
+          <col style="width: 32%">
+          <col style="width: 24%">
+          <col style="width: 10%">
+          <col style="width: 22%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">Data</th>
+            <th scope="col">Colaborador</th>
+            <th scope="col">Veículo</th>
+            <th scope="col" class="num">KM</th>
+            <th scope="col">Situação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for viagem in ultimas_viagens %}
+            <tr>
+              <td>{{ viagem.data|date:"d/m/Y" }}</td>
+              <td>
+                <span class="truncar" title="{{ viagem.funcionario }}">{{ viagem.funcionario }}</span>
+              </td>
+              <td>
+                {{ viagem.veiculo.placa }}
+                <span class="texto-apoio">· {{ viagem.veiculo.modelo }}</span>
+              </td>
+              <td class="num">
+                {% if viagem.em_andamento %}—{% else %}{{ viagem.km_percorrida }}{% endif %}
+              </td>
+              <td>
+                {% if viagem.em_andamento %}
+                  <a class="selo selo-alerta" href="{% url 'registrar_chegada' viagem.pk %}">
+                    Registrar chegada
+                  </a>
+                {% elif viagem.fechada %}
+                  <span class="selo selo-neutro">Fechada</span>
+                {% else %}
+                  <span class="selo selo-sucesso">Em aberto</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="painel-corpo">
+        <p class="vazio">Nenhuma viagem lançada ainda.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

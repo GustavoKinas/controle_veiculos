@@ -7,7 +7,7 @@ from .views import (
     FechamentoView,
     HistoricoFechamentosView,
     LancarReservaView,
-    LancarViagemView,
+    ConsultarViagensView,
     NovaReservaView,
     RegistrarChegadaView,
     SincronizarReservasView,
@@ -15,7 +15,7 @@ from .views import (
 
 urlpatterns = [
     path("agenda/", AgendaView.as_view(), name="agenda"),
-    path("lancar/", LancarViagemView.as_view(), name="lancar_viagem"),
+    path("consultar/", ConsultarViagensView.as_view(), name="consultar_viagens"),
     path("reservas/nova/", NovaReservaView.as_view(), name="nova_reserva"),
     path(
         "reservas/sincronizar/",

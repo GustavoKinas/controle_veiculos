@@ -2,67 +2,7 @@ from django import forms
 
 from colaboradores.models import Funcionario
 
-from .models import ReservaViagem, Viagem, Veiculo
-
-
-class LancamentoViagemForm(forms.ModelForm):
-    class Meta:
-        model = Viagem
-        fields = ["funcionario", "veiculo", "data", "km_inicial", "km_final"]
-        widgets = {
-            "funcionario": forms.Select(attrs={"class": "select"}),
-            "data": forms.DateInput(
-                attrs={"class": "input", "type": "date"},
-                format="%Y-%m-%d",
-            ),
-            "veiculo": forms.Select(
-                attrs={"class": "select"}
-                ),
-
-            "km_inicial": forms.NumberInput(
-                attrs={
-                    "class": "input",
-                    "min": 0,
-                    "placeholder": "Ex.: 120340",
-                }
-            ),
-            # Opcional desde a fase 3: em branco registra a saída e deixa a
-            # viagem em andamento (o `required` vem do modelo, que agora
-            # aceita km_final nulo).
-            "km_final": forms.NumberInput(
-                attrs={
-                    "class": "input",
-                    "min": 0,
-                    "placeholder": "Em branco = veículo ainda na rua",
-                }
-            ),
-            
-        }
-        labels = {
-            "funcionario": "Colaborador",
-            "data": "Data da viagem",
-            "veiculo" :"Veiculo Utilizado",
-            "km_inicial": "Quilometragem inicial",
-            "km_final": "Quilometragem final",
-        }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["data"].input_formats = ["%Y-%m-%d"]
-        # Só colaboradores ativos e vinculados a um centro de custo podem viajar.
-        self.fields["funcionario"].queryset = (
-            Funcionario.objects.filter(ativo=True, centro_custo__isnull=False)
-            .select_related("centro_custo")
-            .order_by("nome")
-        )
-        self.fields["funcionario"].empty_label = "Selecione um colaborador"
-
-        self.fields["veiculo"].queryset = Veiculo.objects.filter(ativo=True).order_by("placa")
-        self.fields["veiculo"].empty_label = "Selecione um veículo"
-
-    # A validação de quilometragem vive em Viagem.clean() e é executada pelo
-    # _post_clean() do ModelForm — assim vale também para o admin e para
-    # qualquer full_clean(). Os erros já vêm endereçados a km_inicial/km_final.
+from .models import ReservaViagem, Veiculo
 
 
 class ReservaManualForm(forms.ModelForm):
