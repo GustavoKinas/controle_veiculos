@@ -300,7 +300,7 @@ Cada uma custou discussão e está justificada no documento indicado.
 | `ReservaViagem.status` é campo real (três estados, "cancelada" não é ausência) | §4 |
 | Relação reserva × viagem é **1:1** | §10 |
 | Dois fluxos de lançamento: saída/chegada em duas etapas, ou tudo de uma vez | §11 |
-| Janela do sync: **hoje até +30 dias** | §10 |
+| Janela do sync: **hoje até +90 dias** | §10 |
 | Chave de junção com o Outlook: campo **`email` nativo** do `AbstractUser` | §8 |
 | Identidade da reserva importada: **`id_externo`**, nunca chave natural | §8.1 |
 | Endpoint: **`calendarView`**, não `getSchedule` (só ele traz `id` e organizador) | §8 |

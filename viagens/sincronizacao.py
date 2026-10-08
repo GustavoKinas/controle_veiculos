@@ -27,7 +27,7 @@ from .integracoes.microsoft_graph import (
 from .models import Veiculo
 from .services import sincronizar_reservas
 
-JANELA_PADRAO_DIAS = 30
+JANELA_PADRAO_DIAS = 90
 
 
 class SemCaixasCadastradas(Exception):

@@ -62,7 +62,7 @@ services:
       # Quem prepara o banco é o web. Ver o comentário no entrypoint.sh.
       RUN_SETUP: "false"
       SYNC_INTERVALO_SEGUNDOS: "900"
-      SYNC_DIAS: "30"
+      SYNC_DIAS: "90"
     env_file:
       - .env
     depends_on:

@@ -20,7 +20,7 @@
 set -u
 
 INTERVALO="${SYNC_INTERVALO_SEGUNDOS:-900}"      # 900s = 15 minutos
-DIAS="${SYNC_DIAS:-30}"                          # janela: hoje até +30 dias
+DIAS="${SYNC_DIAS:-90}"                          # janela: hoje até +90 dias
 ATRASO_INICIAL="${SYNC_ATRASO_INICIAL_SEGUNDOS:-30}"
 
 echo "[scheduler] intervalo=${INTERVALO}s janela=${DIAS}d"

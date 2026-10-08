@@ -15,7 +15,7 @@ Todos os comandos rodam a partir de `controle_veiculos/` (onde está o
 # Ver o que aconteceria, sem gravar nada. Comece sempre por aqui.
 python manage.py sincronizar_reservas --dry-run
 
-# Importar de verdade (janela padrão: hoje até +30 dias)
+# Importar de verdade (janela padrão: hoje até +90 dias)
 python manage.py sincronizar_reservas
 
 # Janela menor, para um teste rápido
@@ -62,7 +62,7 @@ Diferenças que importam:
 
 | | comando | botão |
 |---|---|---|
-| janela | `--dias`, padrão 30 | sempre 30 dias |
+| janela | `--dias`, padrão 90 | sempre 90 dias |
 | dry-run | sim | não |
 | falha parcial | código de saída ≠ 0 | aviso amarelo na tela |
 | permissão | quem tem shell no servidor | `viagens.gerenciar_reservas` |

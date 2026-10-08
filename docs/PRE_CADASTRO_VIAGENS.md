@@ -395,7 +395,7 @@ vez de tentar casar por nome.
 
 ## 8.1 Algoritmo do sync (revisado)
 
-**Janela: hoje até +30 dias.** A janela não é detalhe de configuração — é o
+**Janela: hoje até +90 dias.** A janela não é detalhe de configuração — é o
 que torna possível detectar eventos excluídos (passo 5).
 
 ```
@@ -403,7 +403,7 @@ que torna possível detectar eventos excluídos (passo 5).
    → só as caixas com veículo cadastrado entram no passo 2.
 
 2. Para cada caixa de recurso: GET /users/{email}/calendarView
-   ?startDateTime=hoje&endDateTime=hoje+30d
+   ?startDateTime=hoje&endDateTime=hoje+90d
    → try/except por caixa: um 403 numa sala não pode derrubar o sync inteiro.
    → normalizar: id, organizer.email.lower(), subject.strip(),
      start/end → date + time (naive, horário de São Paulo).
@@ -586,7 +586,7 @@ acabou descartado, e nunca gravava `solicitante_email`.
 
 | Questão | Decisão |
 |---|---|
-| Janela do sync | **hoje até +30 dias** |
+| Janela do sync | **hoje até +90 dias** |
 | Chave do funcionário | **`email` nativo** do `AbstractUser` (não criar campo novo) |
 | Agendamento em produção | **serviço `scheduler` no docker-compose**, laço com `sleep` |
 | Reserva × viagem | **1:1** (`OneToOneField`) — uma reserva gera no máximo uma viagem |

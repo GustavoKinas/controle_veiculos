@@ -38,7 +38,7 @@ class GraphIndisponivel(Exception):
     """Falha ao falar com a Microsoft Graph (rede, credencial, permissão)."""
 
 
-def janela_de_consulta(dias: int = 30) -> tuple[str, str]:
+def janela_de_consulta(dias: int = 90) -> tuple[str, str]:
     """
     Janela `[hoje 00:00, hoje+dias 00:00)` em horário de São Paulo, no formato
     ISO 8601 com offset que o Graph espera em `startDateTime`/`endDateTime`.
@@ -270,7 +270,7 @@ class MicrosoftGraphClient:
         return resultado
 
 
-def periodo_da_janela(dias: int = 30) -> tuple[date, date]:
+def periodo_da_janela(dias: int = 90) -> tuple[date, date]:
     """A mesma janela da consulta, como datas — é o que o sync usa para saber
     quais reservas existentes estão no escopo desta rodada."""
     hoje = datetime.now(FUSO).date()

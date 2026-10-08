@@ -322,7 +322,7 @@ agenda dela. O sync importa esses eventos como reservas.
 ### 4.1 Pela tela (portaria)
 
 Em **`/viagens/agenda/`**, botão **🔄 Sincronizar reservas**. Importa a
-janela de 30 dias a partir de hoje e volta para o mesmo dia que estava
+janela de 90 dias a partir de hoje e volta para o mesmo dia que estava
 aberto.
 
 Leva alguns segundos (uma requisição por caixa). O botão se desabilita
@@ -343,7 +343,7 @@ Resultado possível:
 # Ver o que aconteceria, sem gravar nada
 python manage.py sincronizar_reservas --dry-run
 
-# Importar de verdade (janela padrão: hoje até +30 dias)
+# Importar de verdade (janela padrão: hoje até +90 dias)
 python manage.py sincronizar_reservas
 
 # Janela menor
