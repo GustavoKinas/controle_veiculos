@@ -1,8 +1,8 @@
 # Pré-cadastro de viagens (agenda) — desenho técnico
 
-> **Status:** fases 1 e 2 **implementadas** (modelo, admin, mock, agenda).
-> Fases 3 a 5 pendentes. Os esboços de código das seções 6 e 8 ainda são
-> propostas.
+> **Status:** integração com Outlook, agenda, lançamento de viagens e reservas
+> manuais estão implementados. A agenda exibe períodos inclusivos de vários
+> dias, barras semanais e filtro imediato por veículo.
 >
 > Documento de contexto: serve para retomar o trabalho em outra sessão e para
 > ser reenviado como contexto a modelos de LLM. Complementa o
@@ -17,14 +17,13 @@ Hoje a portaria lança cada viagem do zero: funcionário, data, veículo, KM
 inicial e KM final. O objetivo é receber **pré-cadastros** (reservas de
 veículo) e reduzir o trabalho do operador a preencher apenas a quilometragem.
 
-A origem final dos pré-cadastros será o **Outlook, via Microsoft Graph API**
-(reservas de veículo como recursos). Nesta etapa trabalhamos com **dados
-mockados**, mas a fronteira da integração já é definida (seção 8) para que o
-cliente do Graph entre depois sem alterar nada do resto.
+A origem principal dos pré-cadastros é o **Outlook, via Microsoft Graph API**
+(reservas de veículo como recursos). Reservas também podem ser cadastradas
+manualmente quando necessário. Ambas guardam uma data inicial e uma data final.
 
-**Fora de escopo nesta etapa:** cliente do Graph, autenticação OAuth da
-aplicação, detecção de conflito de reserva (mesmo veículo, mesmo horário),
-notificações.
+**Fora de escopo:** autenticação OAuth interativa da aplicação e
+notificações. A integração Graph usa credenciais de aplicação; conflitos entre
+reservas manuais pendentes do mesmo veículo são verificados pelo sistema.
 
 ---
 
@@ -76,11 +75,11 @@ alteração — viagem não planejada é realidade em qualquer portaria.
 
 ## 4. Modelagem
 
-Novo modelo em `viagens/models.py` (esboço):
+Modelo resumido em `viagens/models.py`:
 
 ```python
 class ReservaViagem(models.Model):
-    """Pré-cadastro de viagem. Hoje mock, futuramente Outlook via Graph."""
+    """Pré-cadastro de viagem, sincronizado do Outlook ou criado manualmente."""
 
     class Status(models.TextChoices):
         PENDENTE  = "pendente",  "Pendente"
@@ -97,6 +96,7 @@ class ReservaViagem(models.Model):
     veiculo     = models.ForeignKey(Veiculo, on_delete=models.PROTECT,
                                     related_name="reservas")
     data        = models.DateField()
+    data_fim    = models.DateField()  # inclusiva; registros antigos usam data
     hora_inicio = models.TimeField(null=True, blank=True)
     hora_fim    = models.TimeField(null=True, blank=True)
     titulo      = models.CharField(max_length=200, blank=True, default="")
@@ -251,66 +251,24 @@ Três detalhes que não podem ser perdidos:
 
 ---
 
-## 7. Calendário sem dependência nova
+## 7. Calendário por período e veículo
 
-Coerente com a decisão 3.6 do DEVELOPMENT.md (nada de biblioteca externa
-quando o problema é simples): grade renderizada no servidor, navegação por
-htmx — o mesmo padrão de `viagens/templates/viagens/partials/_rateio.html` e
-`colaboradores/templates/partials/_tabela_colaboradores.html`.
+A Agenda consulta reservas cuja faixa inclusiva se sobrepõe à semana visível.
+Assim, uma reserva que começa antes da grade ou termina depois dela ainda
+aparece em todos os dias cobertos que estão na tela. O contador mensal soma
+cada reserva uma única vez, mesmo quando a barra ocupa vários dias.
 
-**Na view — uma query para o mês inteiro**, agrupada em Python (uma query por
-dia seriam 30+ queries: o mesmo N+1 já pego duas vezes neste projeto):
+No desktop, cada período vira uma barra alinhada às colunas dos dias. Quando
+uma reserva cruza a semana, a barra continua na linha seguinte; períodos
+simultâneos usam faixas separadas. Cada dia da barra é um link para abrir a
+lista diária daquela data. Em telas estreitas, a agenda mantém uma lista dos
+dias do mês com reservas.
 
-```python
-import calendar
-from collections import defaultdict
-
-semanas = calendar.Calendar(firstweekday=0).monthdatescalendar(ano, mes)
-primeiro, ultimo = semanas[0][0], semanas[-1][-1]
-
-reservas = (
-    ReservaViagem.objects
-    .filter(data__range=(primeiro, ultimo))
-    .exclude(status=ReservaViagem.Status.CANCELADA)
-    .select_related("funcionario", "veiculo")
-    .order_by("hora_inicio", "id")
-)
-
-agrupadas = defaultdict(list)
-for reserva in reservas:
-    agrupadas[reserva.data].append(reserva)
-
-# O template Django não acessa dict por chave dinâmica: monte listas prontas.
-semanas_render = [[(dia, agrupadas.get(dia, [])) for dia in semana]
-                  for semana in semanas]
-```
-
-**No template**, `grid grid-cols-7` puro, com o bloco isolado em
-`viagens/templates/viagens/partials/_calendario.html` para o htmx trocar:
-
-```html
-<div id="calendario" class="hidden sm:grid grid-cols-7 gap-px bg-base-300">
-  {% for semana in semanas_render %}
-    {% for dia, reservas_do_dia in semana %}
-      <div class="min-h-28 bg-base-100 p-1 {% if dia.month != mes %}opacity-40{% endif %}">
-        <span class="text-xs">{{ dia.day }}</span>
-        {% for reserva in reservas_do_dia %}
-          <a href="{% url 'lancar_reserva' reserva.pk %}"
-             class="badge badge-sm w-full justify-start truncate">
-            {{ reserva.hora_inicio|time:"H:i" }} {{ reserva.veiculo.placa }}
-          </a>
-        {% endfor %}
-      </div>
-    {% endfor %}
-  {% endfor %}
-</div>
-```
-
-Navegação de mês: `hx-get="?ano=…&mes=…" hx-target="#calendario"
-hx-push-url="true"`.
-
-**Mobile:** grade de 7 colunas é ilegível em celular. `hidden sm:grid` na
-grade e uma lista vertical `sm:hidden` dos próximos dias.
+O seletor **Veículo** fica à esquerda da barra de ações e começa em **Todos os
+veículos**. A troca de opção carrega imediatamente tanto o panorama quanto a
+lista diária. Dia, mês e veículo são preservados ao navegar ou abrir um dia.
+O seletor está disponível a quem pode abrir a Agenda, mesmo sem permissão para
+cadastrar ou sincronizar reservas.
 
 **Cuidado com o comentário de template:** `{# … #}` é de **uma linha só**; para
 várias linhas, `{% comment %}…{% endcomment %}`. Um `{# #}` quebrado em duas
@@ -318,10 +276,11 @@ linhas vaza o texto para o HTML.
 
 ---
 
-## 8. Fronteira da integração (definir agora, custo zero)
+## 8. Fronteira da integração Microsoft Graph
 
-O mock e o futuro cliente do Graph chamam **a mesma função**. Todo código
-específico da Microsoft fica na borda, traduzindo para este formato:
+O cliente do Graph traduz cada evento para o formato normalizado abaixo e o
+serviço de sincronização aplica as mudanças. Código específico da Microsoft
+fica na integração, separado da persistência:
 
 ```python
 # viagens/services.py
@@ -342,16 +301,23 @@ Payload normalizado **como ficou implementado** (`normalizar_evento`):
     "solicitante_email": "fulano@grupoflexivel.com.br",  # minúsculo, "" se ausente
     "solicitante_nome":  "Fulano de Tal",                # texto cru, já com .strip()
     "data":              date(2026, 8, 10),
+    "data_fim":          date(2026, 8, 12),               # último dia coberto, inclusivo
     "hora_inicio":       time(8, 0),                     # None em evento de dia inteiro
     "hora_fim":          time(12, 0),
     "cancelado":         False,
 }
 ```
 
+O fim vindo do Graph é uma fronteira exclusiva. Em eventos de dia inteiro de
+06/10 00:00 a 09/10 00:00, a agenda grava `data=06/10` e `data_fim=08/10`.
+Um evento com horário que termina exatamente à meia-noite também não ocupa o
+dia seguinte. A migration `0010_reserva_viagem_data_fim` preenche registros
+existentes com `data_fim=data`.
+
 A chave do veículo é o **`email_recurso`**, não a placa: é o `scheduleId` que o
 Graph devolve, e a placa não existe do lado da Microsoft.
 
-Regras do upsert a definir na implementação: evento cancelado no Outlook →
+Regras do upsert: evento cancelado no Outlook →
 `status=CANCELADA` (mas **não** mexer na reserva já `LANCADA`, o fato
 aconteceu); evento remarcado → atualizar data/hora apenas se ainda
 `PENDENTE`.
@@ -429,7 +395,7 @@ vez de tentar casar por nome.
 
 ## 8.1 Algoritmo do sync (revisado)
 
-**Janela: hoje até +30 dias.** A janela não é detalhe de configuração — é o
+**Janela: hoje até +90 dias.** A janela não é detalhe de configuração — é o
 que torna possível detectar eventos excluídos (passo 5).
 
 ```
@@ -437,7 +403,7 @@ que torna possível detectar eventos excluídos (passo 5).
    → só as caixas com veículo cadastrado entram no passo 2.
 
 2. Para cada caixa de recurso: GET /users/{email}/calendarView
-   ?startDateTime=hoje&endDateTime=hoje+30d
+   ?startDateTime=hoje&endDateTime=hoje+90d
    → try/except por caixa: um 403 numa sala não pode derrubar o sync inteiro.
    → normalizar: id, organizer.email.lower(), subject.strip(),
      start/end → date + time (naive, horário de São Paulo).
@@ -486,7 +452,8 @@ Daí a regra dos "ausentes na janela".
 "funcionário genérico":** `Viagem.save()` copia o centro de custo do
 funcionário, então todo km lançado por um genérico seria rateado para o centro
 de custo dele — dinheiro atribuído ao lugar errado, com cara de dado legítimo.
-A agenda já sinaliza o caso, e o operador escolhe o colaborador na fase 3.
+A agenda sinaliza o caso, e o operador informa o colaborador ao lançar a
+reserva como viagem.
 
 ---
 
@@ -563,6 +530,7 @@ ler log em UTC atrapalha o diagnóstico.
 | 3 | Conclusão da reserva (form restrito, vínculo atômico, redirect) | **feita** (migration `0007_viagem_em_andamento`) — ver §11 |
 | 4 | `sincronizar_reservas()` + testes | **feita** — 15 testes, sem tocar a rede |
 | 5 | Cliente do Microsoft Graph | **feita** — `viagens/integracoes/microsoft_graph.py` (`calendarView`) |
+| 6 | Reservas de vários dias e filtro de veículo | **feita** — migration `0010_reserva_viagem_data_fim`, barras semanais e seleção imediata |
 
 ### O que já existe (fases 4 e 5)
 
@@ -585,7 +553,7 @@ python manage.py sincronizar_reservas --dias 7
 com 0 duplicatas. As reservas mockadas (veículos sem `email_recurso`) ficaram
 intactas, provando a proteção de `caixas_consultadas`.
 
-### O que já existe (fases 1 e 2)
+### Componentes da Agenda
 
 ```
 viagens/models.py                                    ReservaViagem, Veiculo.email_recurso
@@ -595,7 +563,7 @@ viagens/urls.py                                      /viagens/agenda/  (name="ag
 viagens/templates/agenda.html                        fila do dia + panorama
 viagens/templates/viagens/partials/_calendario.html  grade mensal (htmx)
 viagens/admin.py                                     ReservaViagemAdmin
-viagens/tests.py                                     12 testes das fases 1 e 2
+viagens/tests.py                                     testes do modelo, agenda, Graph e lançamento
 ```
 
 Para popular o ambiente local, importe as reservas de verdade do Outlook
@@ -604,7 +572,7 @@ Para popular o ambiente local, importe as reservas de verdade do Outlook
 não existia, foi removido — ele imitava o formato do `getSchedule`, que
 acabou descartado, e nunca gravava `solicitante_email`.
 
-### Testes a escrever (fase 3, antes do código)
+### Testes do lançamento a partir da reserva
 
 - reserva já `LANCADA` não pode ser lançada de novo (404 / mensagem);
 - KM inválido **não** marca a reserva como lançada (a transação reverte);
@@ -618,7 +586,7 @@ acabou descartado, e nunca gravava `solicitante_email`.
 
 | Questão | Decisão |
 |---|---|
-| Janela do sync | **hoje até +30 dias** |
+| Janela do sync | **hoje até +90 dias** |
 | Chave do funcionário | **`email` nativo** do `AbstractUser` (não criar campo novo) |
 | Agendamento em produção | **serviço `scheduler` no docker-compose**, laço com `sleep` |
 | Reserva × viagem | **1:1** (`OneToOneField`) — uma reserva gera no máximo uma viagem |
@@ -750,7 +718,7 @@ regra em (b) vira consulta a duas tabelas. Aqui são três regras de hodômetro,
 justamente as mais delicadas.
 
 **Se um dia for revista:** exige migration com dados e reescrita de
-`validar_quilometragem`. Decisão para tomar antes da fase 4, não depois.
+`validar_quilometragem`. A separação atual preserva as regras de hodômetro.
 
 ### Nada em aberto
 

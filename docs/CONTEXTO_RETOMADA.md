@@ -1,6 +1,6 @@
 # Contexto para retomar o trabalho
 
-Atualizado em **30/09/2026**. Este é o resumo operacional; histórico, decisões
+Atualizado em **07/10/2026**. Este é o resumo operacional; histórico, decisões
 já fechadas e procedimentos detalhados estão em [`HISTORICO.md`](HISTORICO.md)
 e nos documentos específicos listados ao final.
 
@@ -28,25 +28,50 @@ Directory foram concluídas.
 
 ### Agenda de viagens e reservas de veículos
 
-- A visualização mensal agora representa reservas de vários dias como uma
-  barra contínua pelo período reservado. O seletor de veículo carrega o
-  panorama do mês e as reservas do veículo escolhido.
-- Os ajustes mais recentes mostram `MODELO - PLACA` no cabeçalho do panorama e
-  o nome do funcionário alinhado à esquerda nos cards de um dia. Reservas de
-  vários dias mantêm o nome centralizado.
-- O usuário atualizou o servidor após `git pull`, executou `docker compose up
-  -d --build` e confirmou que testou em produção. A implementação está
-  aprovada pelo usuário.
-- O trabalho está na branch `codex/agenda-multidias-veiculo`, publicada no
-  GitHub, com três commits: `3dc9f08` (agenda multidias), `af737b2` (ajustes
-  visuais) e `7a446da` (nome do requisitante e veículo no cabeçalho). Ainda
-  falta integrar a branch em `main`; o usuário fará o merge pelo GitHub.
-- A branch contém os arquivos de plano e especificação da agenda como arquivos
-  não rastreados; eles não fazem parte dos três commits. A cópia local de
-  `main` também tem alterações não commitadas em `CONTEXTO_RETOMADA.md`,
-  `DEPLOY_AD.md` e `HISTORICO.md`, além desses dois arquivos não rastreados.
-  Considerar esse estado ao preparar o merge para não misturar documentação
-  local com os commits da funcionalidade.
+- A agenda mensal representa reservas de vários dias como uma barra contínua
+  pelo período reservado. O seletor de veículo filtra o panorama mensal e as
+  reservas do dia; também existe a opção de todos os veículos.
+- A integração da agenda foi restaurada na branch
+  `codex/restore-agenda-multidias`, que está publicada e aponta para o commit
+  `e0e2286`. A branch inclui o merge local dos três commits da antiga branch
+  `codex/agenda-multidias-veiculo` (`3dc9f08`, `af737b2` e `7a446da`) sobre o
+  commit `5f00279` da `main`.
+- O usuário informou que a branch de restauração funcionou no servidor. Depois
+  desse relato, foram adicionados os commits `83f292e` e `e0e2286`; confirmar
+  qual commit está implantado antes de orientar uma atualização de produção.
+- Há uma divergência a esclarecer no histórico remoto: o usuário viu no GitHub
+  que o PR foi marcado como mergeado no commit `7c72243` para `main`, mas as
+  referências locais consultadas mostram `origin/main` em `5f00279`, e o
+  commit `7a446da` não aparece como ancestral dessa referência. Isso pode
+  indicar referência/repositório diferente ou atualização remota pendente;
+  confirmar repositório e executar `git fetch` antes de concluir o que está
+  contido na `main` do GitHub.
+- A rota `/viagens/lancar/` foi removida para impedir a criação de viagens sem
+  reserva. O menu agora leva a “Consultar Viagens lançadas”, uma tela GET de
+  consulta das 15 viagens mais recentes. O painel foi centralizado, ampliado e
+  não exibe a coluna Centro de Custo.
+- Após essa remoção, a entrada da Portaria ainda tentava redirecionar para o
+  nome de rota `lancar_viagem`, causando HTTP 500 ao iniciar uma sessão. A causa
+  estava em `colaboradores.permissoes.pagina_inicial_de()`: o Django não
+  conseguia resolver o nome removido. A correção foi apontar esse redirect para
+  `consultar_viagens`, a nova tela de consulta.
+- A lógica/formulário de lançamento pela tela antiga foi removida. A criação
+  direta continua disponível pelo Django Admin: o `ViagemAdmin` usa o modelo e
+  a validação (`full_clean`) apropriada. O formulário de lançamento vinculado
+  a reserva continua em uso.
+- A migration `viagens/migrations/0010_reserva_viagem_data_fim.py` faz parte do
+  código restaurado; aplicar `python manage.py migrate` no ambiente se ainda
+  não tiver sido executada.
+- O erro de sincronização que tentava gravar `data_fim` nula foi tratado no
+  código restaurado, usando a data inicial quando a origem não informa o fim.
+  Conferir a versão implantada antes de reexecutar a sincronização.
+- A correção de um registro de viagem pendente mencionado pelo usuário foi
+  feita manualmente por ele; não há alteração de código pendente para esse
+  caso.
+- A documentação `GUIA_MERGE_GITHUB.md` explica o processo de recuperação e
+  integração. Os arquivos de plano e especificação da agenda ainda aparecem
+  como não rastreados no status local, assim como o guia; não foram incluídos
+  nos commits de código até a última inspeção.
 
 - Aplicação Django de controle de viagens, reservas de veículos e rateio por
   centro de custo. As cinco fases do pré-cadastro de viagens, perfis de acesso,
@@ -79,31 +104,40 @@ Directory foram concluídas.
 
 ## Próximos passos
 
-1. Integrar pelo GitHub a branch `codex/agenda-multidias-veiculo` em `main`;
-   o usuário já confirmou o teste em produção e aprovou as alterações.
-2. Confirmar o IP/CIDR do HAProxy, restringir a porta 5009 no firewall e
+1. Resolver a divergência entre o PR `7c72243` exibido no GitHub e as
+   referências locais (`origin/main` em `5f00279`). Conferir a URL do remoto,
+   executar `git fetch --all --prune` no repositório correto e inspecionar os
+   logs antes de abrir outro PR ou afirmar que a `main` já contém a agenda.
+2. Confirmar o commit da branch `codex/restore-agenda-multidias` implantado no
+   servidor. Os commits `83f292e` e `e0e2286` foram feitos após o relato de que
+   a restauração já funcionava.
+3. Caso necessário, atualizar o servidor para o commit aprovado e executar
+   `docker compose up -d --build`; aplicar as migrations pendentes com
+   `docker compose exec web python manage.py migrate` (incluindo
+   `0010_reserva_viagem_data_fim`, se ainda pendente).
+4. Confirmar o IP/CIDR do HAProxy, restringir a porta 5009 no firewall e
    verificar que acesso direto é bloqueado antes de confiar no
    `X-Forwarded-Proto`.
-3. Testar o superusuário LOCAL com o AD indisponível no ambiente implantado.
-4. Migrar permissões diretas para grupos e só então fazer a transição e remoção
+5. Testar o superusuário LOCAL com o AD indisponível no ambiente implantado.
+6. Migrar permissões diretas para grupos e só então fazer a transição e remoção
    manual das contas genéricas, conforme o plano de corte.
-5. Após o rebuild em produção, confirmar uma execução bem-sucedida do cron
-   `scheduler-erp` (admissões às 07:15 e 18:15; demissões às 07:20 e 18:20,
-   de segunda a sexta, horário de São Paulo). A execução manual no Docker de
-   produção já foi validada.
-6. Confirmar com o usuário a regra implementada para demissão de código ERP
+7. Após publicar a imagem atualizada, confirmar uma execução bem-sucedida do
+   cron `scheduler-erp` (admissões às 07:15 e 18:15; demissões às 07:20 e
+   18:20, de segunda a sexta, horário de São Paulo). A execução manual no
+   Docker de produção já foi validada.
+8. Confirmar com o usuário a regra implementada para demissão de código ERP
    desconhecido: criar o funcionário já inativo. A decisão ainda está
    assinalada no topo de `colaboradores/sincronizacao_erp.py`.
-7. Testar as telas com um usuário real do grupo Portaria. Os testes anteriores
+9. Testar as telas com um usuário real do grupo Portaria. Os testes anteriores
    usaram administrador/superusuário, que ignora as permissões do grupo.
-8. Antes de confiar nos dados de desenvolvimento, revisar os 7 registros de
-   viagens e 2 fechamentos de teste e corrigir os hodômetros que ainda carregam
-   valores residuais.
-9. Retomar os bugs listados em `ESTUDO.md`, principalmente viagem retroativa
-   após fechamento e fechamentos com períodos sobrepostos.
-10. Avaliar as pendências operacionais restantes: colaboradores da EVO sem
-   centro de custo, reservas de dia inteiro que atravessam vários dias e
-   backup automatizado do Postgres em produção.
+10. Antes de confiar nos dados de desenvolvimento, revisar os 7 registros de
+    viagens e 2 fechamentos de teste e corrigir os hodômetros que ainda carregam
+    valores residuais.
+11. Retomar os bugs listados em `ESTUDO.md`, principalmente viagem retroativa
+    após fechamento e fechamentos com períodos sobrepostos.
+12. Avaliar as pendências operacionais restantes: colaboradores da EVO sem
+    centro de custo, reservas de dia inteiro que atravessam vários dias e
+    backup automatizado do Postgres em produção.
 
 ## Decisão pendente
 
@@ -157,5 +191,6 @@ implementação e aguarda confirmação do usuário.
   pré-cadastro e da integração Outlook.
 - [`UTILIZACOES_DO_SISTEMA.md`](UTILIZACOES_DO_SISTEMA.md) — manual de operação.
 - [`DEPLOY_AD.md`](DEPLOY_AD.md) — configuração AD, validação no runtime e corte.
+- [`../GUIA_MERGE_GITHUB.md`](../GUIA_MERGE_GITHUB.md) — recuperação da agenda e explicação de branches, PRs e merges.
 - [`SINCRONIZACAO.md`](SINCRONIZACAO.md) — sync de reservas pelo shell/CLI.
 - [`ESTUDO.md`](../ESTUDO.md) — roteiro de estudo e bugs conhecidos.

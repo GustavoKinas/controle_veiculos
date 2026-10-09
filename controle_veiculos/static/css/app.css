@@ -466,10 +466,24 @@ body.nav-aberta .nav-overlay { opacity: 1; visibility: visible; }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: var(--sp-2);
   margin-bottom: var(--sp-4);
 }
+
+.agenda-filtro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-right: auto;
+}
+.agenda-filtro label {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+.agenda-filtro .select { width: min(280px, 72vw); }
 
 /* ==========================================================================
    4. GRADE
@@ -698,8 +712,31 @@ textarea:focus {
 }
 
 .painel-ultimas-viagens {
-  width: 905px;
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
+}
+
+.tabela-consulta-viagens {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.tabela-consulta-viagens th,
+.tabela-consulta-viagens td {
+  overflow-wrap: anywhere;
+}
+
+.tabela-consulta-viagens thead th {
+  white-space: normal;
+}
+
+.tabela-consulta-viagens .truncar {
   max-width: 100%;
+}
+
+.tabela-consulta-viagens .selo {
+  white-space: normal;
 }
 
 .painel-cabecalho {
@@ -715,6 +752,12 @@ textarea:focus {
   font-size: var(--fs-xl);
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+.panorama-veiculo {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: right;
 }
 .painel-cabecalho .descricao {
   width: 100%;
@@ -1014,8 +1057,16 @@ dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
 }
 
 .calendario-grade {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border);
+}
+
+.calendario-semana {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: minmax(92px, auto);
   gap: 1px;
   background: var(--border);
 }
@@ -1032,6 +1083,8 @@ dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
 .dia-selecionado { box-shadow: inset 0 0 0 2px var(--brand-dark); }
 
 .dia-numero {
+  position: relative;
+  z-index: 3;
   display: inline-block;
   min-width: 22px;
   margin-bottom: var(--sp-1);
@@ -1062,6 +1115,82 @@ dialog.modal::backdrop { background: rgba(15, 23, 42, 0.5); }
 .dia-item:hover { background: var(--brand-100); text-decoration: none; }
 .dia-item-lancada { background: var(--surface-2); border-left-color: var(--border-strong); color: var(--ink-3); }
 .dia-item-atrasada { background: var(--danger-bg); border-left-color: var(--danger); color: var(--danger); }
+
+/* Reservas ficam sobre a área interna das células e atravessam os dias cobertos. */
+.calendario-barra {
+  position: relative;
+  align-self: start;
+  height: 22px;
+  margin-top: calc(30px + var(--deslocamento-faixa));
+  min-width: 0;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--brand-050);
+  color: var(--ink);
+}
+.calendario-barra-dias {
+  display: grid;
+  grid-template-columns: repeat(var(--dias), minmax(0, 1fr));
+  height: 100%;
+}
+.calendario-barra-dia {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+}
+.calendario-barra-dia:hover { background: rgb(0 0 0 / 8%); text-decoration: none; }
+.calendario-barra-dia:focus-visible {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid var(--brand-dark);
+  outline-offset: -2px;
+}
+.calendario-barra-continua-antes {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.calendario-barra-continua-depois {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.calendario-barra-texto {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--sp-2);
+  overflow: hidden;
+  color: inherit;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  pointer-events: none;
+}
+.calendario-barra-texto > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendario-barra-texto-curto {
+  justify-content: flex-start;
+  text-align: left;
+}
+.calendario-barra-texto-longo {
+  justify-content: center;
+  text-align: center;
+}
+.calendario-barra-lancada {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+.calendario-barra-atrasada {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
 
 /* Lista de dias (celular). */
 .calendario-lista a {
@@ -1403,6 +1532,49 @@ body.acesso {
   text-align: center;
   font-size: var(--fs-sm);
   color: rgba(255, 255, 255, 0.7);
+}
+
+/* Página de erro: experiência isolada da navegação autenticada. */
+body.erro-500 {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--sp-6) var(--sp-4);
+  background-color: var(--brand-teal);
+  background-image:
+    linear-gradient(rgba(4, 67, 34, 0.72), rgba(4, 67, 34, 0.82)),
+    url("../images/background.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.erro-500-conteudo {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-6);
+  width: min(100%, 34rem);
+  padding: var(--sp-8) var(--sp-6);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.erro-500-logo {
+  width: auto;
+  height: 44px;
+}
+
+.erro-500-conteudo h1 {
+  color: var(--brand-dark);
+  font-size: clamp(var(--fs-xl), 5vw, var(--fs-3xl));
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+@media (max-width: 480px) {
+  .erro-500-conteudo { padding: var(--sp-6) var(--sp-4); }
 }
 
 /* ==========================================================================

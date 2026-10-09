@@ -322,7 +322,7 @@ agenda dela. O sync importa esses eventos como reservas.
 ### 4.1 Pela tela (portaria)
 
 Em **`/viagens/agenda/`**, botão **🔄 Sincronizar reservas**. Importa a
-janela de 30 dias a partir de hoje e volta para o mesmo dia que estava
+janela de 90 dias a partir de hoje e volta para o mesmo dia que estava
 aberto.
 
 Leva alguns segundos (uma requisição por caixa). O botão se desabilita
@@ -343,7 +343,7 @@ Resultado possível:
 # Ver o que aconteceria, sem gravar nada
 python manage.py sincronizar_reservas --dry-run
 
-# Importar de verdade (janela padrão: hoje até +30 dias)
+# Importar de verdade (janela padrão: hoje até +90 dias)
 python manage.py sincronizar_reservas
 
 # Janela menor
@@ -386,14 +386,22 @@ Em produção o comando roda em laço no serviço `scheduler` do
 ### 5.1 Ver a agenda
 
 **`/viagens/agenda/`** — o dia selecionado com a fila de trabalho à esquerda e
-o panorama do mês à direita. Clique num dia da grade para trocar a fila.
+o panorama do mês à direita. Clique em um dia ou segmento de reserva para
+abrir a fila daquela data. Uma reserva de 06/10 a 08/10 aparece nos três dias;
+no panorama, a barra continua na semana seguinte quando necessário.
+
+Use o seletor **Veículo**, à esquerda das ações, para escolher um veículo ou
+**Todos os veículos**. A agenda carrega a seleção imediatamente e aplica o
+filtro ao panorama mensal e à fila do dia. O filtro é mantido ao navegar entre
+meses e datas. Ele também aparece para quem pode abrir a Agenda, mas não tem
+permissão para criar ou sincronizar reservas.
 
 Estados dos cartões:
 
 | Selo | Significado |
 |---|---|
 | **Pendente** | esperando o lançamento da quilometragem |
-| **Atrasada** | pendente com a data já passada — precisa de atenção |
+| **Atrasada** | pendente cujo período inteiro já terminou — precisa de atenção |
 | **Na rua** | saída lançada, veículo ainda não voltou |
 | **Lançada** | virou viagem, entra no rateio |
 
@@ -408,20 +416,25 @@ hora, caixa de recurso fora do ar.
 |---|---|
 | Colaborador | sim — só aparecem ativos e com centro de custo |
 | Veículo | sim — só veículos ativos **e livres no horário** |
-| Data | sim |
+| Data inicial | sim |
+| Data final | sim — começa igual à inicial; pode ser alterada para uma data igual ou posterior |
 | Horários | os dois, ou nenhum (reserva de dia inteiro) |
 | Destino | não |
 
+O período inclui as duas datas. Para reservar de 06/10 a 08/10, informe
+06/10 como data inicial e 08/10 como data final; o veículo ficará ocupado
+nos dias 6, 7 e 8. O formulário não aceita data final anterior à inicial.
+
 **O sistema recusa reservar um veículo já reservado.** Se o carro tiver
-reserva pendente que se sobreponha ao horário pedido, o formulário acusa e
-diz qual é o conflito ("RLN1J19 já tem reserva pendente em 20/08/2026 das
-08:00 às 12:00"). Detalhes:
+reserva pendente do mesmo veículo com sobreposição de data e horário em
+qualquer dia do período, o formulário acusa e diz qual é o conflito
+("RLN1J19 já tem reserva pendente em 20/08/2026 das 08:00 às 12:00"). Detalhes:
 
 - horários que apenas **se encostam** são permitidos — 08:00–12:00 e
   12:00–14:00 não disputam o carro;
 - reserva **cancelada** ou **já lançada** não ocupa o veículo: o horário
   volta a ficar livre;
-- reserva de **dia inteiro** conflita com qualquer outra daquela data.
+- reserva de **dia inteiro** conflita com qualquer outra nos dias em comum.
 
 Reserva criada assim **nunca é cancelada pelo sync**, porque não veio do
 Outlook.

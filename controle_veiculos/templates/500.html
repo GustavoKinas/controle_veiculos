@@ -1,0 +1,28 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Erro — Controle de Veículos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="{% static 'css/app.css' %}" />
+</head>
+<body class="erro-500">
+  <main class="erro-500-conteudo" aria-labelledby="mensagem-erro">
+    <img
+      class="erro-500-logo"
+      src="/static/logo.de0b997659cf.png"
+      alt="Grupo Flexível"
+    />
+    <h1 id="mensagem-erro">Oops! Ocorreu um erro!</h1>
+    <a class="btn btn-primario" href="/">Voltar para a tela inicial</a>
+  </main>
+</body>
+</html>

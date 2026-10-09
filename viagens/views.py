@@ -21,11 +21,10 @@ from .exports import exportar_rateio_csv, exportar_viagens_csv
 from .forms import (
     FechamentoFiltroForm,
     LancamentoDeReservaForm,
-    LancamentoViagemForm,
     RegistrarChegadaForm,
     ReservaManualForm,
 )
-from .models import Fechamento, ReservaViagem, Viagem
+from .models import Fechamento, ReservaViagem, Veiculo, Viagem
 from .sincronizacao import (
     GraphIndisponivel,
     SemCaixasCadastradas,
@@ -108,13 +107,28 @@ class AgendaView(PerfilRequeridoMixin, View):
             request.GET.get("ano"), request.GET.get("mes"), dia_selecionado
         )
 
-        calendario = montar_calendario(mes_exibido.year, mes_exibido.month)
+        veiculos = Veiculo.objects.all()
+        try:
+            veiculo_id = int(request.GET.get("veiculo", ""))
+            veiculo_selecionado = veiculos.filter(pk=veiculo_id).first()
+        except (TypeError, ValueError):
+            veiculo_selecionado = None
+        veiculo_id = veiculo_selecionado.pk if veiculo_selecionado else None
+
+        calendario = montar_calendario(
+            mes_exibido.year, mes_exibido.month, veiculo_id=veiculo_id
+        )
 
         contexto = {
             **calendario,
             "hoje": hoje,
             "dia_selecionado": dia_selecionado,
-            "reservas_do_dia": reservas_no_periodo(dia_selecionado, dia_selecionado),
+            "reservas_do_dia": reservas_no_periodo(
+                dia_selecionado, dia_selecionado, veiculo_id=veiculo_id
+            ),
+            "veiculos": veiculos,
+            "veiculo_selecionado": veiculo_selecionado,
+            "veiculo_selecionado_id": veiculo_id,
             "mes_exibido": mes_exibido,
             # Somar/subtrair 1 no mês vira caso especial em dezembro e janeiro;
             # andar pelos dias resolve sem condicional.
@@ -140,7 +154,8 @@ class NovaReservaView(PerfilRequeridoMixin, View):
         return _data_do_parametro(request.GET.get("dia"), timezone.localdate())
 
     def get(self, request: HttpRequest) -> HttpResponse:
-        form = ReservaManualForm(initial={"data": self._data_inicial(request)})
+        data_inicial = self._data_inicial(request)
+        form = ReservaManualForm(initial={"data": data_inicial, "data_fim": data_inicial})
         return render(request, self.template_name, {"form": form})
 
     def post(self, request: HttpRequest) -> HttpResponse:
@@ -337,41 +352,22 @@ class RegistrarChegadaView(PerfilRequeridoMixin, View):
         return render(request, self.template_name, {"viagem": viagem, "form": form})
 
 
-class LancarViagemView(PerfilRequeridoMixin, View):
-    """Tela do operador (portaria) para lançar as viagens dos colaboradores."""
+class ConsultarViagensView(PerfilRequeridoMixin, View):
+    """Consulta as 15 viagens mais recentes, sem criar viagens diretamente."""
 
     permissao_requerida = PERM_LANCAR_VIAGEM
-    template_name = "lancar_viagem.html"
-
-    def _context(self, form=None):
-        return {
-            "form": form or LancamentoViagemForm(),
-            "ultimas_viagens": (
-                Viagem.objects.select_related("funcionario", "centro_custo", "veiculo")
-                .order_by("-criada_em")[:15]
-            ),
-        }
+    template_name = "consultar_viagens.html"
 
     def get(self, request: HttpRequest) -> HttpResponse:
-        return render(request, self.template_name, self._context())
-
-    def post(self, request: HttpRequest) -> HttpResponse:
-        form = LancamentoViagemForm(request.POST)
-
-        if form.is_valid():
-            viagem = form.save(commit=False)
-            viagem.lancada_por = request.user
-            # centro_custo e km_percorrida são preenchidos no Viagem.save().
-            viagem.save()
-            messages.success(
-                request,
-                f"Viagem de {viagem.funcionario} em {viagem.data:%d/%m/%Y} "
-                f"lançada ({viagem.km_percorrida} km).",
-            )
-            return redirect("lancar_viagem")
-
-        messages.error(request, "Não foi possível lançar a viagem. Verifique os campos.")
-        return render(request, self.template_name, self._context(form))
+        ultimas_viagens = (
+            Viagem.objects.select_related("funcionario", "centro_custo", "veiculo")
+            .order_by("-criada_em")[:15]
+        )
+        return render(
+            request,
+            self.template_name,
+            {"ultimas_viagens": ultimas_viagens},
+        )
 
 
 class FechamentoView(PerfilRequeridoMixin, View):

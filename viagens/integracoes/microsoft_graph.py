@@ -38,7 +38,7 @@ class GraphIndisponivel(Exception):
     """Falha ao falar com a Microsoft Graph (rede, credencial, permissão)."""
 
 
-def janela_de_consulta(dias: int = 30) -> tuple[str, str]:
+def janela_de_consulta(dias: int = 90) -> tuple[str, str]:
     """
     Janela `[hoje 00:00, hoje+dias 00:00)` em horário de São Paulo, no formato
     ISO 8601 com offset que o Graph espera em `startDateTime`/`endDateTime`.
@@ -64,6 +64,15 @@ def _horario(bloco: dict | None) -> datetime | None:
     if not valor:
         return None
     return datetime.fromisoformat(valor).replace(second=0, microsecond=0)
+
+
+def _termina_exatamente_a_meia_noite(bloco: dict | None) -> bool:
+    """Detecta a fronteira exclusiva antes de `_horario` truncar os segundos."""
+    valor = (bloco or {}).get("dateTime")
+    if not valor:
+        return False
+    horario = datetime.fromisoformat(valor).time()
+    return horario.hour == horario.minute == horario.second == horario.microsecond == 0
 
 
 def normalizar_evento(evento: dict, email_recurso: str) -> dict | None:
@@ -93,6 +102,28 @@ def normalizar_evento(evento: dict, email_recurso: str) -> dict | None:
 
     fim = _horario(evento.get("end"))
     dia_inteiro = bool(evento.get("isAllDay"))
+    data_fim = fim.date() if fim is not None else inicio.date()
+    if (
+        fim is not None
+        and fim.date() > inicio.date()
+        and _termina_exatamente_a_meia_noite(evento.get("end"))
+    ):
+        # O Graph representa o fim como fronteira exclusiva. À meia-noite, o
+        # último dia civil ocupado é o anterior, inclusive em eventos com hora.
+        data_fim -= timedelta(days=1)
+
+    hora_fim = fim.time() if fim is not None else None
+    if (
+        not dia_inteiro
+        and fim is not None
+        and data_fim == fim.date()
+        and hora_fim == time.min
+        and not _termina_exatamente_a_meia_noite(evento.get("end"))
+    ):
+        # O campo horário tem precisão de minuto. Um fim em 00:00:30 não é a
+        # fronteira exclusiva 00:00:00; arredondar para 00:01 evita tratá-lo
+        # como se ocupasse o dia inteiro.
+        hora_fim = time(0, 1)
 
     organizador = (evento.get("organizer") or {}).get("emailAddress") or {}
     # O assunto costuma trazer o nome digitado pelo solicitante; o `.strip()`
@@ -106,10 +137,11 @@ def normalizar_evento(evento: dict, email_recurso: str) -> dict | None:
         "solicitante_email": (organizador.get("address") or "").strip().lower(),
         "solicitante_nome": nome,
         "data": inicio.date(),
+        "data_fim": data_fim,
         # Dia inteiro grava horário NULO, não 00:00: "sem horário definido" e
         # "sai à meia-noite" são coisas diferentes na agenda do operador.
         "hora_inicio": None if dia_inteiro else inicio.time(),
-        "hora_fim": None if dia_inteiro or fim is None else fim.time(),
+        "hora_fim": None if dia_inteiro else hora_fim,
         "cancelado": bool(evento.get("isCancelled")),
     }
 
@@ -238,7 +270,7 @@ class MicrosoftGraphClient:
         return resultado
 
 
-def periodo_da_janela(dias: int = 30) -> tuple[date, date]:
+def periodo_da_janela(dias: int = 90) -> tuple[date, date]:
     """A mesma janela da consulta, como datas — é o que o sync usa para saber
     quais reservas existentes estão no escopo desta rodada."""
     hoje = datetime.now(FUSO).date()

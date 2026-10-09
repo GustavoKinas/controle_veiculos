@@ -40,12 +40,22 @@
           {% endfor %}
         </div>
 
-        <div class="campo">
-          <label class="rotulo" for="{{ form.data.id_for_label }}">{{ form.data.label }}</label>
-          {{ form.data }}
-          {% for erro in form.data.errors %}
-            <span class="erro-campo">{{ erro }}</span>
-          {% endfor %}
+        <div class="grade grade-2 mt-4">
+          <div class="campo">
+            <label class="rotulo" for="{{ form.data.id_for_label }}">{{ form.data.label }}</label>
+            {{ form.data }}
+            {% for erro in form.data.errors %}
+              <span class="erro-campo">{{ erro }}</span>
+            {% endfor %}
+          </div>
+
+          <div class="campo">
+            <label class="rotulo" for="{{ form.data_fim.id_for_label }}">{{ form.data_fim.label }}</label>
+            {{ form.data_fim }}
+            {% for erro in form.data_fim.errors %}
+              <span class="erro-campo">{{ erro }}</span>
+            {% endfor %}
+          </div>
         </div>
 
         {% comment %}
@@ -91,4 +101,21 @@
     </div>
   </section>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const dataInicial = document.getElementById("id_data");
+  const dataFinal = document.getElementById("id_data_fim");
+
+  function atualizarLimiteDataFinal() {
+    dataFinal.min = dataInicial.value;
+    if (dataFinal.value && dataInicial.value && dataFinal.value < dataInicial.value) {
+      dataFinal.value = dataInicial.value;
+    }
+  }
+
+  dataInicial.addEventListener("change", atualizarLimiteDataFinal);
+  dataFinal.min = dataInicial.value;
+</script>
 {% endblock %}

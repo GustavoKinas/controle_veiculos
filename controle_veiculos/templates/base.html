@@ -71,9 +71,9 @@
             </a>
           </li>
           <li>
-            <a class="nav-link" href="{% url 'lancar_viagem' %}"
-               {% if request.resolver_match.url_name == 'lancar_viagem' %}aria-current="page"{% endif %}>
-              Lançar viagem
+            <a class="nav-link" href="{% url 'consultar_viagens' %}"
+               {% if request.resolver_match.url_name == 'consultar_viagens' %}aria-current="page"{% endif %}>
+              Consultar Viagens lançadas
             </a>
           </li>
         </ul>

@@ -191,8 +191,7 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LOGIN_URL = "login"
-# Destino único que reparte por perfil: a portaria vai para o lançamento, o
-# financeiro para o fechamento. Apontar direto para "lancar_viagem" daria 403
-# de boas-vindas a quem não pode lançar.
+# Destino único que reparte por perfil: a portaria vai para a consulta de
+# viagens, o financeiro para o fechamento.
 LOGIN_REDIRECT_URL = "pagina_inicial"
 LOGOUT_REDIRECT_URL = "login"
