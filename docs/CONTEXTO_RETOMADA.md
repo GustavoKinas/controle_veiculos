@@ -1,6 +1,6 @@
 # Contexto para retomar o trabalho
 
-Atualizado em **07/10/2026**. Este é o resumo operacional; histórico, decisões
+Atualizado em **08/10/2026**. Este é o resumo operacional; histórico, decisões
 já fechadas e procedimentos detalhados estão em [`HISTORICO.md`](HISTORICO.md)
 e nos documentos específicos listados ao final.
 
@@ -65,6 +65,11 @@ Directory foram concluídas.
 - O erro de sincronização que tentava gravar `data_fim` nula foi tratado no
   código restaurado, usando a data inicial quando a origem não informa o fim.
   Conferir a versão implantada antes de reexecutar a sincronização.
+- A janela padrão da sincronização Outlook foi ampliada de 30 para **90 dias**.
+  O valor está configurado na orquestração, nos defaults do cliente Graph e no
+  serviço `scheduler` (`SYNC_DIAS` no `docker-compose.yml`). O comando aceita
+  uma janela diferente via `--dias`; confirmar a versão implantada antes de
+  considerar a mudança ativa em produção.
 - A correção de um registro de viagem pendente mencionado pelo usuário foi
   feita manualmente por ele; não há alteração de código pendente para esse
   caso.
