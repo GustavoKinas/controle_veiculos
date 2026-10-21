@@ -463,6 +463,23 @@ def _reserva_pendente_anterior(reserva):
     )
 
 
+def validar_distancia_maxima_reserva(reserva, km_inicial, km_final):
+    """Rejeita distâncias acima de 1.000 km por dia reservado."""
+    if km_inicial is None or km_final is None:
+        return
+
+    dias_reservados = (reserva.data_fim - reserva.data).days + 1
+    distancia = km_final - km_inicial
+    limite = dias_reservados * 1000
+    if distancia > limite:
+        raise ValidationError({
+            "km_final": (
+                f"Essa viagem ficaria com distância de {distancia} km percorrida. "
+                "Verifique as quilometragens inicial e final preenchidas."
+            )
+        })
+
+
 @transaction.atomic
 def lancar_viagem_da_reserva(
     *,
@@ -568,6 +585,7 @@ def lancar_viagem_da_reserva(
         lancada_por=usuario,
     )
     viagem.congelar_centro_custo()    # antes do full_clean, ver o método
+    validar_distancia_maxima_reserva(reserva, km_inicial, km_final)
     # Sem ModelForm não existe `_post_clean()`, e `save()` não valida:
     # o full_clean() aqui é o que mantém piso, teto e data futura valendo
     # também neste caminho.

@@ -233,7 +233,7 @@ class Viagem(models.Model):
     def clean(self):
         erros = {}
         # Import tardio: services importa models (evita import circular).
-        from .services import validar_quilometragem
+        from .services import validar_distancia_maxima_reserva, validar_quilometragem
 
         # Vale para qualquer caminho de validação (ModelForm, admin,
         # full_clean() em scripts), não só para a tela de lançamento.
@@ -259,6 +259,15 @@ class Viagem(models.Model):
             )
         except ValidationError as e:
             erros = e.update_error_dict(erros)
+
+        reserva = getattr(self, "reserva", None)
+        if reserva is not None:
+            try:
+                validar_distancia_maxima_reserva(
+                    reserva, self.km_inicial, self.km_final
+                )
+            except ValidationError as e:
+                erros = e.update_error_dict(erros)
 
         if erros:
             raise ValidationError(erros)
